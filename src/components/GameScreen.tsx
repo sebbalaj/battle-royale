@@ -56,26 +56,25 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
                 {game.phase === "outcome-hidden" && <p>Open Round text to read the result. The map remains unchanged until Reveal.</p>}
               </div>
             </div>
+            <div className="game-action-dock">
+              <button className="primary-button advance-button" disabled={battleComplete} onClick={onAdvance}>
+                {battleComplete ? "Battle complete" : advanceLabel}
+              </button>
+              <button
+                className="round-text-button"
+                disabled={!game.currentBasicText}
+                onClick={() => setTextDrawerOpen(true)}
+              >
+                <span>Round text</span>
+                <small>{game.currentConflictText ? "Basic + conflict" : game.currentBasicText ? "Basic" : "Available after movement"}</small>
+              </button>
+            </div>
             <MapBoard
               mapImage={campaign.mapImage}
               areas={campaign.areas}
               characters={campaign.characters}
               contestedAreaIds={contestedAreaIds}
             />
-          </div>
-
-          <div className="game-action-dock">
-            <button className="primary-button advance-button" disabled={battleComplete} onClick={onAdvance}>
-              {battleComplete ? "Battle complete" : advanceLabel}
-            </button>
-            <button
-              className="round-text-button"
-              disabled={!game.currentBasicText}
-              onClick={() => setTextDrawerOpen(true)}
-            >
-              <span>Round text</span>
-              <small>{game.currentConflictText ? "Basic + conflict" : game.currentBasicText ? "Basic" : "Available after movement"}</small>
-            </button>
           </div>
         </div>
 

@@ -141,7 +141,7 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .map-status-row p { max-width: 610px; margin: 0; color: var(--muted); font-size: .78rem; text-align: right; }
 .phase-badge--outcome-hidden { border-color: rgba(216, 110, 70, .45); color: #efad8e; }
 .phase-badge--revealed { border-color: rgba(142, 171, 120, .4); color: #b7cda6; }
-.game-action-dock { position: sticky; z-index: 8; bottom: 10px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, .32fr); gap: 10px; margin-top: 10px; border: 1px solid var(--line); border-radius: 15px; background: rgba(21, 19, 15, .94); padding: 8px; box-shadow: 0 12px 35px rgba(0, 0, 0, .4); backdrop-filter: blur(12px); }
+.game-action-dock { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, .32fr); gap: 10px; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 13px; background: #191713; padding: 7px; }
 .advance-button { width: 100%; margin: 0; padding: 15px; font-size: 1rem; }
 .round-text-button { display: grid; gap: 2px; align-content: center; border: 1px solid #5d5544; border-radius: 11px; background: #2c2922; padding: 9px 14px; color: var(--gold); cursor: pointer; text-align: left; }
 .round-text-button span { font-weight: 800; }
@@ -227,7 +227,7 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .drawer-content .copy-panel pre { max-height: none; }
 
 @media (max-width: 650px) {
-  .game-action-dock { grid-template-columns: minmax(0, 1fr) 130px; bottom: 6px; }
+  .game-action-dock { grid-template-columns: minmax(0, 1fr) 130px; }
   .round-text-button { padding-inline: 10px; }
   .round-text-drawer { width: 100%; height: min(78vh, 680px); margin-top: auto; border-top: 1px solid #514a3b; border-left: 0; border-radius: 20px 20px 0 0; animation-name: drawer-up; }
   @keyframes drawer-up { from { transform: translateY(30px); opacity: 0; } }
