@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">The Shattered Reach placeholder map</title>
+  <desc id="desc">A stylized fantasy map with coast, forest, mountains, marsh, roads, and settlements.</desc>
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#173a48"/><stop offset="1" stop-color="#0c2632"/></linearGradient>
+    <linearGradient id="land" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c3a76d"/><stop offset="1" stop-color="#806c43"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#07151b" flood-opacity=".65"/></filter>
+    <pattern id="waves" width="70" height="32" patternUnits="userSpaceOnUse"><path d="M0 18 Q17 6 35 18 T70 18" fill="none" stroke="#7ca7ab" stroke-opacity=".16" stroke-width="3"/></pattern>
+  </defs>
+  <rect width="1200" height="800" fill="url(#sea)"/>
+  <rect width="1200" height="800" fill="url(#waves)"/>
+  <path d="M94 555 Q126 428 246 360 Q235 250 352 175 Q476 84 629 129 Q710 94 798 154 Q915 169 1005 272 Q1090 374 1029 486 Q1059 603 934 665 Q809 724 688 674 Q574 748 436 681 Q297 717 190 651 Q118 632 94 555Z" fill="url(#land)" stroke="#deca94" stroke-width="7" filter="url(#shadow)"/>
+  <path d="M103 553 Q128 464 219 399 M224 363 Q311 334 353 176 M437 682 Q484 587 583 554 M686 674 Q716 584 810 534 M1002 274 Q922 306 869 386" fill="none" stroke="#6d5732" stroke-opacity=".35" stroke-width="15"/>
+  <path d="M173 564 C316 481 415 441 541 313 S792 270 961 353 M365 619 C456 548 548 533 673 548 S838 500 933 421" fill="none" stroke="#ead29c" stroke-opacity=".62" stroke-width="7" stroke-dasharray="14 10"/>
+  <g fill="#324c35" stroke="#203426" stroke-width="3">
+    <path d="M531 558l25-61 25 61zM568 569l30-73 30 73zM610 559l24-58 24 58zM651 583l29-70 29 70zM699 568l23-57 23 57z"/>
+  </g>
+  <g fill="#625d52" stroke="#35332f" stroke-width="4">
+    <path d="M423 267l53-105 51 105zM478 285l70-143 70 143zM551 273l56-113 61 113zM621 294l68-136 67 136z"/>
+    <path d="M514 211l34-69 32 66-27-13z" fill="#d9d3bd"/>
+  </g>
+  <g fill="#43563e" opacity=".9">
+    <circle cx="277" cy="364" r="24"/><circle cx="310" cy="348" r="30"/><circle cx="339" cy="384" r="28"/><circle cx="268" cy="408" r="31"/><circle cx="320" cy="420" r="35"/><circle cx="371" cy="404" r="26"/>
+  </g>
+  <g fill="#526552" opacity=".72">
+    <circle cx="754" cy="614" r="20"/><circle cx="790" cy="626" r="29"/><circle cx="823" cy="602" r="25"/><circle cx="851" cy="630" r="33"/>
+  </g>
+  <path d="M248 581q47-49 99 0q-45 51-99 0M276 617q38-36 79 0q-40 39-79 0" fill="#527368" stroke="#344e49" stroke-width="5"/>
+  <g fill="#2e2a23" stroke="#e1c990" stroke-width="4">
+    <path d="M157 575h68v50h-68zM167 551h16v24h-16zM199 544h17v31h-17z"/>
+    <path d="M800 330h95v75h-95zM812 300h20v30h-20zM863 291h22v39h-22z"/>
+    <path d="M899 493h62v47h-62zM907 471h16v22h-16zM943 468h14v25h-14z"/>
+  </g>
+  <g font-family="Georgia,serif" fill="#231f18" font-weight="700" text-anchor="middle" letter-spacing="3">
+    <text x="192" y="655" font-size="26">EMBER PORT</text>
+    <text x="321" y="468" font-size="24">OLDWOOD</text>
+    <text x="579" y="330" font-size="24">CROWN PEAKS</text>
+    <text x="848" y="438" font-size="25">IRON KEEP</text>
+    <text x="924" y="575" font-size="22">WATCHTOWER</text>
+    <text x="622" y="627" font-size="22">THORN GROVE</text>
+    <text x="309" y="665" font-size="20">GREY MARSH</text>
+  </g>
+  <text x="600" y="74" font-family="Georgia,serif" font-size="38" fill="#d8c18c" text-anchor="middle" letter-spacing="10">THE SHATTERED REACH</text>
+  <g transform="translate(1080 670)" fill="none" stroke="#dac28d" stroke-width="4"><circle r="54"/><path d="M0-68V68M-68 0H68M0-58l12 46 46 12-46 12L0 58l-12-46-46-12 46-12z"/><text y="-78" fill="#dac28d" stroke="none" font-family="Georgia" font-size="25" text-anchor="middle">N</text></g>
+</svg>
