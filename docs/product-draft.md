@@ -1,367 +1,217 @@
-# Battle Royale: Initial Product Draft
+# Battle Royale: Product Draft
 
-## 1. Purpose
+## Purpose
 
-Battle Royale is a single-user, local-first map game that works alongside external AI text and image generators. The game manages maps, characters, random movement, collisions, hidden conflict results, and randomized text ingredients. It does not need to call an AI service in the first version.
+Battle Royale is a single-user, local-first map game used alongside external AI text and image generators. It manages maps, characters, random movement, conflicts, delayed map reveals, and copyable round text. Direct AI API access is outside the first playable model.
 
-The initial release should be an installable Progressive Web App (PWA). It should run in mobile and desktop browsers, remain usable offline after installation, and save campaigns on the current device.
+The application is an installable Progressive Web App (PWA) for mobile and desktop browsers.
 
-## 2. Terms
+## Confirmed rules
 
-- **Campaign:** One saved collection of a map, areas, characters, phrase entries, settings, and game progress.
-- **Area:** A manually drawn overlay region on the map. An area acts as one playable cell.
-- **Active character:** A character still participating in random movement and conflicts.
-- **Defeated character:** A character that lost a conflict. It remains visible but is greyed out and no longer moves.
-- **Hidden outcome:** A conflict result already selected by the game but not shown until the next Advance action.
-- **Text entry:** One word or phrase parsed from the semicolon-separated source text.
+- The user places circular cells manually over a map image.
+- The user connects nearby cells to define legal movement routes.
+- Every active character has a 50% chance to stay in its current cell.
+- Otherwise, the character randomly chooses one connected cell.
+- All characters move simultaneously.
+- Two or more active characters ending in one cell always enter conflict.
+- The application randomly chooses one winner. Everyone else in that cell loses.
+- The conflict result appears in copyable conflict text immediately.
+- The map does not reveal the result until the next Reveal action.
+- Revealed losers remain visible but greyed out and stop moving.
+- Words and phrases are separated by semicolons.
+- Conflict copy contains at least 8 randomized entries from the uploaded text.
+- Campaign state and uploaded images are saved locally on the device.
 
-## 3. Setup flow
+## Setup flow
 
-### 3.1 Create a campaign
+### Campaign and map
 
-The user creates a locally saved campaign and gives it a name.
+The user names the campaign and selects **Replace map**. The browser opens the phone or computer's normal Photos/Files picker.
 
-### 3.2 Upload a map
+Accepted user image formats:
 
-The user uploads a PNG, JPEG, or WebP image. The editor displays the image with a scalable overlay.
+- PNG
+- JPEG
+- WebP
 
-The map image is stored locally. It is not automatically uploaded to GitHub or another server.
+Each image may be up to 15 MB. The image is converted to a data URL and stored in IndexedDB as part of the local campaign. It is not sent to GitHub, a backend, or an AI provider.
 
-### 3.3 Draw map areas manually
+The first playable model includes a built-in placeholder map, so setup works before the user uploads anything.
 
-The user enters area-editing mode and draws each playable cell directly over the map.
+### Circular cells
 
-Proposed polygon workflow:
+The map editor has three tools:
 
-1. Select **Add area**.
-2. Tap or click several points around the desired region.
-3. Close the polygon by selecting its first point or pressing **Finish**.
-4. Give the area a name.
-5. Drag vertices to correct the shape.
-6. Save, rename, redraw, or delete the area.
+- **Select:** Choose an existing cell to rename, resize, or delete.
+- **Place circle:** Tap or click the desired position on the map.
+- **Connect nearby:** Select two circles to add or remove a legal movement route.
 
-Each polygon stores normalized coordinates from `0` to `1` rather than screen pixels. This keeps the overlay aligned when the map is displayed at different sizes.
+Cell centers and sizes use normalized map coordinates. They stay aligned when the map scales to another screen size.
 
-The application highlights the area under the pointer or finger. Overlapping polygons should be rejected or clearly warned about because a character must occupy exactly one cell.
+Connection lines are visible during setup and play. They define “nearby”; a character cannot move between unconnected cells.
 
-### 3.4 Add characters
+### Characters
 
-For each character, the user:
+Each character has:
 
-- Uploads a portrait.
-- Assigns a name.
-- Selects a starting area.
+- A stable internal ID.
+- A name.
+- A portrait.
+- A manually selected starting cell.
+- A current cell.
+- Active or defeated status.
 
-Each character receives an internal ID independent of its name. The first version does not require statistics, teams, or factions.
+The user selects **Upload portrait** to choose an image from Photos/Files. The first model includes four placeholder portraits and can add or remove characters.
 
-### 3.5 Import text entries
+### Story words and phrases
 
-The user can paste text or upload a plain-text file. A semicolon separates entries.
-
-Example:
+The user pastes words and phrases into a text field or uploads a plain `.txt` file up to 1 MB. A semicolon separates entries.
 
 ```text
-fog; broken sword; betrayal; silent footsteps; red moon
+fog; broken sword; betrayal; silent footsteps; red moon; hidden passage
 ```
 
 Parsing rules:
 
 - Split on `;`.
-- Trim spaces and line breaks around each entry.
+- Trim surrounding spaces and line breaks.
 - Ignore empty entries.
-- Preserve capitalization and punctuation inside entries.
-- Show the parsed list before starting the game.
+- Preserve capitalization and internal punctuation.
 
-Whether duplicate entries should be preserved as additional weighting remains an open decision.
+At least eight valid entries are required before play can begin.
 
-### 3.6 Save setup
+### Start validation
 
-The game validates that:
+The first battle can start when:
 
-- A map exists.
-- At least one area exists.
-- Every active character has a name, portrait, and starting area.
-- At least one valid text entry exists.
+- The map has at least two cells.
+- Every cell has at least one connection.
+- At least two named characters exist.
+- Every character has a starting cell.
+- At least eight story entries exist.
 
-The user can return to setup later. Editing areas during an active game may require restarting the game because existing positions could become invalid.
+Starting a battle resets all characters to their selected starting cells and restores defeated characters.
 
-## 4. Game rules
+## Round flow
 
-### 4.1 Random movement
+### Movement advance
 
-When a movement phase begins, the game independently chooses an outcome for every active character:
+The initial button says **Advance first round**. Later movement buttons say **Advance next round**.
 
-- Stay in the current area.
-- Move to another eligible area.
+Pressing the movement advance:
 
-All selected movements are applied simultaneously. Defeated characters never move.
+1. Gives each active character a 50% chance to stay.
+2. Otherwise chooses one connected neighboring cell at random.
+3. Applies every movement simultaneously.
+4. Detects every cell with multiple active occupants.
+5. Randomly chooses and stores one winner per conflict.
+6. Produces the two copyable text types.
+7. Shows contested cells without identifying winners or losers on the map.
+8. Changes the main button to **Reveal conflicts**.
 
-Proposed first-version default:
+Pending outcomes are immediately auto-saved, so reloading the application does not reroll a winner.
 
-- Staying has a 20% probability.
-- Moving has an 80% probability.
-- When moving, every other map area has an equal chance of being selected.
+### Reveal advance
 
-These values are assumptions, not confirmed requirements. A later settings screen can control the stay chance and movement rules. Restricting movement to connected neighboring areas is also a possible later feature.
+Pressing **Reveal conflicts**:
 
-### 4.2 Conflict detection
+1. Applies every stored conflict result.
+2. Greys out each loser on the map and roster.
+3. Prevents losers from moving again.
+4. Marks the history record as revealed.
+5. Enables the next movement advance.
 
-After simultaneous movement, every area containing at least two active characters creates a conflict. Conflict always occurs in a shared area; there are no friendly teams or exceptions in the first version.
+If no conflict occurred, Reveal finalizes the round without defeating anyone.
 
-Characters crossing in opposite directions do not conflict unless they finish in the same area.
+## Copyable text
 
-### 4.3 Conflict selection
+### Basic round copy
 
-Proposed first-version rule:
-
-- The game randomly selects one character in each contested area as the winner.
-- Every occupant has an equal chance.
-- All other characters in that area become defeated.
-- The result is stored immediately as a hidden outcome.
-
-The map must not reveal the winner during the hidden phase. All characters in a contested area remain displayed in their normal active style until the next Advance action.
-
-A manual override can be considered later, but it is outside the initial scope.
-
-## 5. Advance state machine
-
-The interface uses one main button whose label explains what the next action will do.
-
-### State A: Ready to move
-
-Button label:
+The basic copy reports movement and major events. It names conflict participants but leaves detailed results to the conflict copy.
 
 ```text
-Advance: Move characters
+ROUND 3
+
+MOVEMENTS
+- Mara moved from Ember Port to Oldwood.
+- Orin stayed at Iron Keep.
+
+MAJOR EVENTS
+- A conflict began at Oldwood between Mara and Sable.
 ```
 
-Pressing it performs these actions in order:
+### Conflict copy
 
-1. Randomly choose movement or staying for every active character.
-2. Apply all movement simultaneously.
-3. Detect conflicts.
-4. Select and store conflict results without displaying them.
-5. Randomly select and order text entries.
-6. Display a copyable string that does not reveal conflict winners.
-7. Change the game to the hidden-outcome state.
+The conflict copy contains the actual winner even though the map still hides the result. It also contains randomized story words and phrases.
 
-The map may show that several characters occupy the same area, but it must not visually identify a winner or loser.
-
-### State B: Outcome hidden
-
-Button label:
+The first model selects up to 12 entries. Because setup requires at least 8 entries, every conflict copy contains between 8 and 12 entries.
 
 ```text
-Advance: Reveal conflicts
+ROUND 3 — CONFLICT RESULTS
+
+- At Oldwood, Mara won. Defeated: Sable.
+
+STORY WORDS AND PHRASES
+silent footsteps; red moon; broken sword; hidden passage; sudden storm; betrayal; final oath; distant bells
 ```
 
-The user can copy the generated string and use it with an external text generator before revealing results.
+Both panels have a Copy button. Generated text remains available in round history.
 
-Pressing Advance now:
+## Conflict rules
 
-1. Reveals every stored winner.
-2. Greys out every defeated character on the map and roster.
-3. Prevents defeated characters from participating in future movement.
-4. Adds the revealed results to game history.
-5. Changes the game to the revealed state.
+- Every shared destination creates conflict, without team or friendship exceptions.
+- One participant is selected with equal probability.
+- One winner remains active.
+- All other occupants are defeated.
+- Separate cells can resolve separate conflicts during the same round.
+- Characters swapping positions do not conflict unless they share a final cell.
 
-If no conflict occurred, this step simply confirms the round without defeating anyone.
+Weighted characters, manual winner overrides, and AI judging can be added later.
 
-### State C: Results revealed
+## Map display
 
-Button label:
+- Circular cell overlays show cell names.
+- Dotted lines show legal movement routes.
+- Character portraits appear in a small stack at the occupied cell.
+- A contested cell pulses in a neutral conflict color before Reveal.
+- The pulse does not indicate who won.
+- After Reveal, defeated portraits become grey and translucent.
 
-```text
-Advance: Start next round
-```
+## Local persistence
 
-Pressing it begins the next movement phase and returns to State B with a newly generated string. This separate state gives the user time to inspect the revealed result before pieces move again.
+IndexedDB stores one current campaign in the first playable model, including:
 
-This creates the sequence:
+- Campaign name.
+- Map image data.
+- Cell positions, sizes, names, and connections.
+- Character images, names, positions, and status.
+- Story source text.
+- Current phase and pending conflict outcomes.
+- Round history and copyable text.
 
-```text
-Move and generate text -> Reveal conflict -> Move and generate text -> Reveal conflict
-```
+The app auto-saves after setup edits, movement, winner selection, and reveal. Cross-device synchronization is not included. Export/import packages can be added later.
 
-The product can omit a separate third visual state if the result remains visible until the next movement press. The important rule is that a result is never revealed on the same press that generated its text string.
+## First playable implementation
 
-## 6. Copyable randomized string
+The implementation uses:
 
-The source is the parsed semicolon-separated entry list. During each movement phase, the game chooses entries and randomizes their order.
+- TypeScript and React.
+- Vite for development and production builds.
+- HTML overlays and SVG connection lines over the map.
+- IndexedDB for local persistence.
+- A service worker and web app manifest for PWA installation and offline caching.
+- Bundled SVG placeholder art.
 
-Example output:
+## Later settings and features
 
-```text
-silent footsteps; red moon; broken sword
-```
+Potential additions include:
 
-The copy panel should provide:
-
-- The generated string.
-- A **Copy** button.
-- Confirmation that copying succeeded.
-- The ability to view strings from prior rounds in history.
-
-The string must not contain the hidden winner or any wording that reveals the outcome.
-
-The number of selected entries and whether movement details should accompany them remain open decisions.
-
-## 7. Map presentation
-
-### Active characters
-
-Display portraits as markers associated with their current polygon. If several characters share an area, show them as a small stack or row rather than placing them directly on top of one another.
-
-### Hidden conflicts
-
-A contested area may receive a neutral border or conflict icon, provided that it does not imply who won.
-
-### Defeated characters
-
-After reveal:
-
-- Grey out the portrait.
-- Lower its opacity.
-- Mark it as defeated in the roster.
-- Leave it visible in its defeat location unless the user later chooses to hide defeated characters.
-
-### Mobile interaction
-
-The map needs pinch zoom and pan. Setup controls need large touch targets, explicit edit modes, and an undo action for polygon points.
-
-## 8. Local persistence
-
-Campaigns and game progress should be stored in IndexedDB because maps and portraits are too large for reliable use of `localStorage`.
-
-Auto-save after:
-
-- Setup changes.
-- Character movement.
-- Hidden conflict selection.
-- Conflict reveal.
-- Settings changes.
-
-The pending hidden outcome must be saved so closing and reopening the app cannot reroll a conflict accidentally.
-
-A later version can export and import a campaign package for backups or movement between devices. Device synchronization and user accounts are outside the initial scope.
-
-## 9. Suggested data model
-
-```ts
-type Campaign = {
-  version: 1;
-  id: string;
-  name: string;
-  map: {
-    imageBlobId: string;
-    width: number;
-    height: number;
-  };
-  areas: Area[];
-  characters: Character[];
-  textEntries: string[];
-  settings: {
-    stayChance: number;
-    selectedTextEntryCount: number;
-  };
-  game: GameState;
-};
-
-type Area = {
-  id: string;
-  name: string;
-  points: Array<{ x: number; y: number }>;
-};
-
-type Character = {
-  id: string;
-  name: string;
-  portraitBlobId: string;
-  areaId: string;
-  status: "active" | "defeated";
-  defeatedInRound?: number;
-};
-
-type GameState = {
-  round: number;
-  phase: "ready" | "outcome-hidden" | "revealed";
-  pendingOutcomes: ConflictOutcome[];
-  currentText: string;
-  history: RoundRecord[];
-};
-
-type ConflictOutcome = {
-  areaId: string;
-  participantIds: string[];
-  winnerId: string;
-  loserIds: string[];
-};
-```
-
-Blob records for map and portrait images should be stored separately from campaign metadata.
-
-## 10. Recommended implementation shape
-
-Provisional stack:
-
-- TypeScript.
-- React for setup and game screens.
-- Vite for the browser build.
-- SVG layered over the map for editable polygons and character markers.
-- IndexedDB for local campaign and image storage.
-- A PWA service worker and manifest for installation and offline use.
-- GitHub Pages for the hosted application.
-
-A native wrapper is unnecessary for the first version unless app-store distribution is required immediately.
-
-## 11. Initial screens
-
-1. **Home:** Create, continue, rename, or delete a local campaign.
-2. **Campaign setup:** Upload map, draw areas, add characters, import text, and review validation.
-3. **Game map:** View positions, advance phases, copy generated text, and reveal conflicts.
-4. **Roster:** View active and defeated characters.
-5. **History:** Review generated strings, movements, and revealed outcomes by round.
-6. **Settings:** Initially read-only or minimal; later controls movement and text selection probabilities.
-
-On mobile, the map remains the primary view and the roster/history open as sheets or tabs.
-
-## 12. First implementation boundary
-
-The first playable version should include:
-
-- One or more locally saved campaigns.
-- One map per campaign.
-- Manual polygon area drawing and editing.
-- Character portrait upload, naming, and starting placement.
-- Semicolon-separated text parsing.
-- Random movement with a stay chance.
-- Simultaneous movement.
-- Conflict in every area containing multiple active characters.
-- Hidden random outcomes.
-- Copyable randomized text before reveal.
-- Reveal on a later Advance action.
-- Greyed-out defeated characters.
-- Local auto-save.
-- Installable mobile and desktop PWA behavior.
-
-Not included initially:
-
-- Direct text-generation or image-generation APIs.
-- Online accounts or synchronization.
-- Multiplayer.
-- Teams or diplomacy.
-- Character statistics.
-- Native app-store packages.
-- Complicated movement tuning.
-
-## 13. Open decisions before implementation
-
-1. **Area shape:** Does “select areas manually” mean drawing polygon boundaries, or placing simpler circular cells?
-2. **Movement range:** In the first version, can a moving character land in any map area, or only a neighboring area?
-3. **Stay chance:** Is 20% an acceptable initial default?
-4. **Winner selection:** Should every participant have an equal random chance, with one winner defeating everyone else?
-5. **Text count:** How many semicolon-separated entries should each generated string contain?
-6. **Text content:** Should the copyable output contain only randomized entries, or also character movements and conflict participants while withholding the winner?
-7. **Duplicates:** Should repeated text entries increase their chance of selection, or should duplicates be removed?
-8. **Starting positions:** Does the user select every starting area, or should the game randomize them?
-9. **Defeated marker:** Should a defeated character remain greyed out on the map, or disappear from the map and remain only in the roster/history?
+- Adjustable stay probability.
+- Different movement weights for each route.
+- Automatic suggestions for nearby cell connections.
+- Character statistics and weighted conflicts.
+- Campaign export and import.
+- Multiple local campaigns.
+- Pinch-to-zoom map editing.
+- Direct text or image generation APIs.
+- Native app-store wrappers.
