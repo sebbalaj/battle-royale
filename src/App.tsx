@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import GameScreen from "./components/GameScreen";
 import SetupScreen from "./components/SetupScreen";
-import { createDefaultCampaign, emptyGameState } from "./data";
+import { createDefaultCampaign, emptyGameState, migrateCampaign } from "./data";
 import { revealOutcomes, runRound } from "./game";
 import { loadCampaign, saveCampaign } from "./storage";
 import type { Campaign } from "./types";
@@ -13,7 +13,7 @@ export default function App() {
 
   useEffect(() => {
     void loadCampaign()
-      .then((savedCampaign) => setCampaign(savedCampaign?.version === 1 ? savedCampaign : createDefaultCampaign()))
+      .then((savedCampaign) => setCampaign(migrateCampaign(savedCampaign) ?? createDefaultCampaign()))
       .catch(() => {
         setStorageError("Local saving is unavailable in this browser session.");
         setCampaign(createDefaultCampaign());
@@ -43,7 +43,10 @@ export default function App() {
         ...character,
         areaId: character.startAreaId,
         status: "active",
-        defeatedInRound: undefined,
+        power: 7,
+        lastOpponentId: undefined,
+        deathCause: undefined,
+        diedInRound: undefined,
       })),
       game: emptyGameState(),
     });

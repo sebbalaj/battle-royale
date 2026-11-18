@@ -1,6 +1,7 @@
 export type Screen = "setup" | "game";
 export type GamePhase = "ready" | "outcome-hidden" | "revealed";
-export type CharacterStatus = "active" | "defeated";
+export type CharacterStatus = "active" | "dead";
+export type LoserFate = "died" | "escaped";
 
 export type Area = {
   id: string;
@@ -18,20 +19,43 @@ export type Character = {
   startAreaId: string;
   areaId: string;
   status: CharacterStatus;
-  defeatedInRound?: number;
+  power: number;
+  invulnerable: boolean;
+  lastOpponentId?: string;
+  deathCause?: string;
+  diedInRound?: number;
 };
 
 export type Movement = {
   characterId: string;
   fromAreaId: string;
   toAreaId: string;
+  powerBefore: number;
+  powerChange: number;
+  powerAfter: number;
+  deathCause?: string;
+};
+
+export type FightExchange = {
+  fighterIds: [string, string];
+  winnerId: string;
+  loserId: string;
+  winnerChance: number;
+  winnerPowerBefore: number;
+  winnerDamage: number;
+  winnerPowerAfter: number;
+  loserPowerBefore: number;
+  loserFate: LoserFate;
+  loserDeathChance: number;
+  loserPowerAfter: number;
+  escapeAreaId?: string;
 };
 
 export type ConflictOutcome = {
   areaId: string;
   participantIds: string[];
-  winnerId: string;
-  loserIds: string[];
+  finalControllerId: string;
+  fights: FightExchange[];
 };
 
 export type RoundRecord = {
@@ -53,7 +77,7 @@ export type GameState = {
 };
 
 export type Campaign = {
-  version: 1;
+  version: 2;
   name: string;
   mapImage: string;
   areas: Area[];

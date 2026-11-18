@@ -19,12 +19,12 @@ const openDatabase = (): Promise<IDBDatabase> =>
     request.onerror = () => reject(request.error);
   });
 
-export const loadCampaign = async (): Promise<Campaign | undefined> => {
+export const loadCampaign = async (): Promise<unknown> => {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const request = transaction.objectStore(STORE_NAME).get(CAMPAIGN_KEY);
-    request.onsuccess = () => resolve(request.result as Campaign | undefined);
+    request.onsuccess = () => resolve(request.result as unknown);
     request.onerror = () => reject(request.error);
     transaction.oncomplete = () => database.close();
   });

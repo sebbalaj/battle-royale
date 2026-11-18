@@ -1,4 +1,4 @@
-import type { Campaign, GameState } from "./types";
+import type { Campaign, Character, GameState } from "./types";
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`;
 
@@ -11,8 +11,24 @@ export const emptyGameState = (): GameState => ({
   history: [],
 });
 
+const defaultCharacter = (
+  id: string,
+  name: string,
+  portraitNumber: number,
+  startAreaId: string,
+): Character => ({
+  id,
+  name,
+  portrait: asset(`portrait-${portraitNumber}.svg`),
+  startAreaId,
+  areaId: startAreaId,
+  status: "active",
+  power: 7,
+  invulnerable: false,
+});
+
 export const createDefaultCampaign = (): Campaign => ({
-  version: 1,
+  version: 2,
   name: "The Shattered Reach",
   mapImage: asset("placeholder-map.svg"),
   areas: [
@@ -25,13 +41,51 @@ export const createDefaultCampaign = (): Campaign => ({
     { id: "marsh", name: "Grey Marsh", x: 0.3, y: 0.76, radius: 0.052, neighborIds: ["port", "oldwood", "grove"] },
   ],
   characters: [
-    { id: "mara", name: "Mara Vex", portrait: asset("portrait-1.svg"), startAreaId: "port", areaId: "port", status: "active" },
-    { id: "orin", name: "Orin Ash", portrait: asset("portrait-2.svg"), startAreaId: "keep", areaId: "keep", status: "active" },
-    { id: "sable", name: "Sable Thorn", portrait: asset("portrait-3.svg"), startAreaId: "oldwood", areaId: "oldwood", status: "active" },
-    { id: "lyra", name: "Lyra Vale", portrait: asset("portrait-4.svg"), startAreaId: "watch", areaId: "watch", status: "active" },
+    defaultCharacter("mara", "Mara Vex", 1, "port"),
+    defaultCharacter("orin", "Orin Ash", 2, "keep"),
+    defaultCharacter("sable", "Sable Thorn", 3, "oldwood"),
+    defaultCharacter("lyra", "Lyra Vale", 4, "watch"),
   ],
   phraseSource: "fog; broken sword; betrayal; silent footsteps; red moon; hidden passage; ancient debt; sudden storm; burning banner; whispered warning; lost crown; poisoned river; unexpected ally; distant bells; final oath; shattered shield",
   stayChance: 0.5,
   screen: "setup",
   game: emptyGameState(),
 });
+
+type StoredCharacter = Partial<Omit<Character, "status">> & { status?: string };
+type StoredCampaign = Partial<Omit<Campaign, "characters" | "version">> & {
+  version?: number;
+  characters?: StoredCharacter[];
+};
+
+export const migrateCampaign = (saved: unknown): Campaign | undefined => {
+  if (!saved || typeof saved !== "object") return undefined;
+  const stored = saved as StoredCampaign;
+  if (!stored.name || !stored.mapImage || !stored.areas || !stored.characters || !stored.phraseSource) return undefined;
+
+  const characters: Character[] = stored.characters.map((character, index) => ({
+    id: character.id ?? crypto.randomUUID(),
+    name: character.name ?? `Character ${index + 1}`,
+    portrait: character.portrait ?? asset(`portrait-${(index % 4) + 1}.svg`),
+    startAreaId: character.startAreaId ?? stored.areas?.[0]?.id ?? "",
+    areaId: character.areaId ?? character.startAreaId ?? stored.areas?.[0]?.id ?? "",
+    status: character.status === "defeated" || character.status === "dead" ? "dead" : "active",
+    power: Number.isFinite(character.power) ? Number(character.power) : 7,
+    invulnerable: Boolean(character.invulnerable),
+    lastOpponentId: character.lastOpponentId,
+    deathCause: character.deathCause,
+    diedInRound: character.diedInRound,
+  }));
+
+  return {
+    version: 2,
+    name: stored.name,
+    mapImage: stored.mapImage,
+    areas: stored.areas,
+    characters,
+    phraseSource: stored.phraseSource,
+    stayChance: stored.stayChance ?? 0.5,
+    screen: stored.version === 2 ? stored.screen ?? "setup" : "setup",
+    game: stored.version === 2 && stored.game ? stored.game : emptyGameState(),
+  };
+};

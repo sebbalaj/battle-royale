@@ -130,6 +130,8 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
       startAreaId: campaign.areas[0]?.id ?? "",
       areaId: campaign.areas[0]?.id ?? "",
       status: "active",
+      power: 7,
+      invulnerable: false,
     };
     onChange({ ...campaign, characters: [...campaign.characters, character] });
   };
@@ -265,6 +267,17 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
                     {campaign.areas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}
                   </select>
                 </label>
+                <div className="character-rule-row">
+                  <span className="starting-power">Starts at <strong>7 power</strong></span>
+                  <label className="invulnerable-toggle">
+                    <input
+                      type="checkbox"
+                      checked={character.invulnerable}
+                      onChange={(event) => updateCharacter(character.id, { invulnerable: event.target.checked })}
+                    />
+                    Invulnerable
+                  </label>
+                </div>
                 <div className="character-actions">
                   <label className="text-button">Upload portrait<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void uploadPortrait(character.id, event)} /></label>
                   <button className="text-button danger-text" onClick={() => removeCharacter(character.id)}>Remove</button>
@@ -296,8 +309,8 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
 
       <section className="launch-panel">
         <div>
-          <p className="eyebrow">Movement rule</p>
-          <h2>50% stay, 50% move to a connected cell</h2>
+          <p className="eyebrow">Round rules</p>
+          <h2>50% stay · nearby movement · power changes by −2 to +2</h2>
           {!canStart && <p className="validation-message">To start: add at least 2 characters, 2 cells, a route for every cell, starting positions, and 8 text entries.</p>}
         </div>
         <button className="primary-button launch-button" disabled={!canStart} onClick={onStart}>Start battle</button>

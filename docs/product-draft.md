@@ -1,217 +1,166 @@
-# Battle Royale: Product Draft
+# Battle Royale: Current Game Rules
 
 ## Purpose
 
-Battle Royale is a single-user, local-first map game used alongside external AI text and image generators. It manages maps, characters, random movement, conflicts, delayed map reveals, and copyable round text. Direct AI API access is outside the first playable model.
+Battle Royale is a local-first map game used alongside external AI text and image generators. It manages map cells, random movement, changing character power, conflicts, delayed map reveals, and copyable story text.
 
-The application is an installable Progressive Web App (PWA) for mobile and desktop browsers.
+## Setup
 
-## Confirmed rules
+### Images
 
-- The user places circular cells manually over a map image.
-- The user connects nearby cells to define legal movement routes.
-- Every active character has a 50% chance to stay in its current cell.
-- Otherwise, the character randomly chooses one connected cell.
-- All characters move simultaneously.
-- Two or more active characters ending in one cell always enter conflict.
-- The application randomly chooses one winner. Everyone else in that cell loses.
-- The conflict result appears in copyable conflict text immediately.
-- The map does not reveal the result until the next Reveal action.
-- Revealed losers remain visible but greyed out and stop moving.
-- Words and phrases are separated by semicolons.
-- Conflict copy contains at least 8 randomized entries from the uploaded text.
-- Campaign state and uploaded images are saved locally on the device.
+The user can upload one map and one portrait per character from the device's normal file picker.
 
-## Setup flow
+Accepted formats are PNG, JPEG, and WebP, with a 15 MB limit per image. Images remain in IndexedDB on the current device. They are not sent to GitHub or an AI provider.
 
-### Campaign and map
+### Map cells and routes
 
-The user names the campaign and selects **Replace map**. The browser opens the phone or computer's normal Photos/Files picker.
-
-Accepted user image formats:
-
-- PNG
-- JPEG
-- WebP
-
-Each image may be up to 15 MB. The image is converted to a data URL and stored in IndexedDB as part of the local campaign. It is not sent to GitHub, a backend, or an AI provider.
-
-The first playable model includes a built-in placeholder map, so setup works before the user uploads anything.
-
-### Circular cells
-
-The map editor has three tools:
-
-- **Select:** Choose an existing cell to rename, resize, or delete.
-- **Place circle:** Tap or click the desired position on the map.
-- **Connect nearby:** Select two circles to add or remove a legal movement route.
-
-Cell centers and sizes use normalized map coordinates. They stay aligned when the map scales to another screen size.
-
-Connection lines are visible during setup and play. They define “nearby”; a character cannot move between unconnected cells.
+The user manually places circular cells over the map. Connections between circles define which cells count as nearby. A moving character can only use one of these connections.
 
 ### Characters
 
-Each character has:
+Every character has:
 
-- A stable internal ID.
-- A name.
-- A portrait.
+- A name and portrait.
 - A manually selected starting cell.
-- A current cell.
-- Active or defeated status.
+- Power, starting at 7.
+- An optional **Invulnerable** setting.
+- A record of their most recent opponent.
+- Active or dead status.
 
-The user selects **Upload portrait** to choose an image from Photos/Files. The first model includes four placeholder portraits and can add or remove characters.
+Invulnerable means the character cannot die. They can still lose a fight and escape. A negative movement change cannot reduce an invulnerable character below 1 power.
 
-### Story words and phrases
+### Story entries
 
-The user pastes words and phrases into a text field or uploads a plain `.txt` file up to 1 MB. A semicolon separates entries.
+The user can paste text or upload a `.txt` file. Semicolons separate individual words and phrases. At least eight entries are required.
 
-```text
-fog; broken sword; betrayal; silent footsteps; red moon; hidden passage
-```
+## Movement round
 
-Parsing rules:
+For every active character:
 
-- Split on `;`.
-- Trim surrounding spaces and line breaks.
-- Ignore empty entries.
-- Preserve capitalization and internal punctuation.
+1. Randomly choose `-2`, `-1`, `0`, `+1`, or `+2`, with a 20% chance for each.
+2. Apply that change to the character's power.
+3. If a non-invulnerable character reaches 0 power, the character dies before moving.
+4. Otherwise, give the character a 50% chance to stay.
+5. If moving, randomly select one connected neighboring cell.
+6. Apply all surviving characters' movement simultaneously.
 
-At least eight valid entries are required before play can begin.
+Power has no upper limit.
 
-### Start validation
+### Death outside a fight
 
-The first battle can start when:
+If movement reduces power to zero:
 
-- The map has at least two cells.
-- Every cell has at least one connection.
-- At least two named characters exist.
-- Every character has a starting cell.
-- At least eight story entries exist.
+- A character who has never fought **died in an accident / to the elements**.
+- A character who previously fought **died from injuries from fight with [most recent opponent]**.
 
-Starting a battle resets all characters to their selected starting cells and restores defeated characters.
+The exact cause appears in basic round text, history, and the roster.
 
-## Round flow
+## Conflict
 
-### Movement advance
+Two or more active characters finishing in the same cell always create a conflict. For more than two characters, the application randomizes a one-on-one fight order and continues until one character controls the cell. Winner damage affects the odds of later fights in that same conflict.
 
-The initial button says **Advance first round**. Later movement buttons say **Advance next round**.
+### Win probability
 
-Pressing the movement advance:
+A one-on-one fight starts at 50/50. Each point of power difference shifts both sides by five percentage points.
 
-1. Gives each active character a 50% chance to stay.
-2. Otherwise chooses one connected neighboring cell at random.
-3. Applies every movement simultaneously.
-4. Detects every cell with multiple active occupants.
-5. Randomly chooses and stores one winner per conflict.
-6. Produces the two copyable text types.
-7. Shows contested cells without identifying winners or losers on the map.
-8. Changes the main button to **Reveal conflicts**.
+Examples:
 
-Pending outcomes are immediately auto-saved, so reloading the application does not reroll a winner.
+- Power 7 against 7: 50% / 50%.
+- Power 9 against 7: 60% / 40%.
+- Power 14 against 7: capped at 95% / 5%.
 
-### Reveal advance
+Probabilities are capped at 95% and 5%, so an upset remains possible.
 
-Pressing **Reveal conflicts**:
+### Winner damage
 
-1. Applies every stored conflict result.
-2. Greys out each loser on the map and roster.
-3. Prevents losers from moving again.
-4. Marks the history record as revealed.
-5. Enables the next movement advance.
+The winner loses a random whole amount from 0 through 50% of the winner's current power, rounded down. Winner damage is applied before another fight in the same multi-character conflict.
 
-If no conflict occurred, Reveal finalizes the round without defeating anyone.
+### Loser death or escape
 
-## Copyable text
-
-### Basic round copy
-
-The basic copy reports movement and major events. It names conflict participants but leaves detailed results to the conflict copy.
+The loser either dies or escapes. The death chance is:
 
 ```text
-ROUND 3
-
-MOVEMENTS
-- Mara moved from Ember Port to Oldwood.
-- Orin stayed at Iron Keep.
-
-MAJOR EVENTS
-- A conflict began at Oldwood between Mara and Sable.
+50%
++ 5 percentage points for each power point the winner had over the loser
++ 10 percentage points if the loser entered the fight with only 1–2 power
 ```
 
-### Conflict copy
+The result is capped between 10% and 90%.
 
-The conflict copy contains the actual winner even though the map still hides the result. It also contains randomized story words and phrases.
+If the loser survives:
 
-The first model selects up to 12 entries. Because setup requires at least 8 entries, every conflict copy contains between 8 and 12 entries.
+- Their power becomes randomly 1 or 2.
+- They move to a random connected neighboring cell.
+- They remain active next round.
 
-```text
-ROUND 3 — CONFLICT RESULTS
+If an invulnerable character loses, their death chance is 0%, so they always escape with 1 or 2 power.
 
-- At Oldwood, Mara won. Defeated: Sable.
+## Hidden map result and Reveal
 
-STORY WORDS AND PHRASES
-silent footsteps; red moon; broken sword; hidden passage; sudden storm; betrayal; final oath; distant bells
-```
+The movement advance calculates and saves complete fight results. The conflict copy immediately names winners, damage, deaths, and escapes. The map still displays all conflict participants without showing those changes.
 
-Both panels have a Copy button. Generated text remains available in round history.
+Pressing **Reveal conflicts** then:
 
-## Conflict rules
+- Applies winner damage.
+- Moves escaped losers.
+- Greys out dead characters.
+- Updates every visible power value.
+- Saves the revealed history record.
 
-- Every shared destination creates conflict, without team or friendship exceptions.
-- One participant is selected with equal probability.
-- One winner remains active.
-- All other occupants are defeated.
-- Separate cells can resolve separate conflicts during the same round.
-- Characters swapping positions do not conflict unless they share a final cell.
+Reloading during the hidden phase does not reroll the result.
 
-Weighted characters, manual winner overrides, and AI judging can be added later.
+## Copyable text layout
 
-## Map display
+The game map has a sticky action bar containing:
 
-- Circular cell overlays show cell names.
-- Dotted lines show legal movement routes.
-- Character portraits appear in a small stack at the occupied cell.
-- A contested cell pulses in a neutral conflict color before Reveal.
-- The pulse does not indicate who won.
-- After Reveal, defeated portraits become grey and translucent.
+- **Advance first/next round** or **Reveal conflicts**.
+- **Round text**.
 
-## Local persistence
+Selecting **Round text** opens a side drawer on desktop or a bottom drawer on mobile. The user does not need to scroll below the map.
 
-IndexedDB stores one current campaign in the first playable model, including:
+The drawer has two tabs:
 
-- Campaign name.
-- Map image data.
-- Cell positions, sizes, names, and connections.
-- Character images, names, positions, and status.
-- Story source text.
-- Current phase and pending conflict outcomes.
-- Round history and copyable text.
+### Basic round
 
-The app auto-saves after setup edits, movement, winner selection, and reveal. Cross-device synchronization is not included. Export/import packages can be added later.
+Includes:
 
-## First playable implementation
+- Movement or staying.
+- Every power change.
+- Accidents and deaths caused by old injuries.
+- Conflict participants and locations.
 
-The implementation uses:
+### Conflict
 
-- TypeScript and React.
-- Vite for development and production builds.
-- HTML overlays and SVG connection lines over the map.
-- IndexedDB for local persistence.
-- A service worker and web app manifest for PWA installation and offline caching.
-- Bundled SVG placeholder art.
+Includes:
 
-## Later settings and features
+- Each winner and loser.
+- The winning probability.
+- Winner power damage.
+- Whether the loser died or escaped.
+- Escape destination and remaining power.
+- Between 8 and 12 randomized story entries.
 
-Potential additions include:
+## Visible power
 
-- Adjustable stay probability.
-- Different movement weights for each route.
-- Automatic suggestions for nearby cell connections.
-- Character statistics and weighted conflicts.
-- Campaign export and import.
-- Multiple local campaigns.
-- Pinch-to-zoom map editing.
-- Direct text or image generation APIs.
-- Native app-store wrappers.
+Power appears:
+
+- As a small number on each map portrait.
+- As a larger value beside each roster entry.
+- In basic movement text.
+- In conflict results.
+
+Invulnerable characters receive a distinct marker and portrait border.
+
+## Local persistence and migration
+
+IndexedDB stores the current campaign, uploaded images, game phase, hidden outcomes, power values, death causes, and round history.
+
+Campaigns created by the earlier model are migrated automatically. Their map, cells, routes, portraits, names, and story entries are kept. The old battle is reset because its saved conflict records do not contain power information.
+
+## Future options
+
+- Adjustable movement and power-change probabilities.
+- Adjustable combat formulas.
+- Campaign export/import and multiple campaigns.
+- Automatic nearby-route suggestions.
+- Direct AI text and image APIs.

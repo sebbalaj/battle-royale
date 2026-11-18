@@ -1,6 +1,7 @@
+import { useState } from "react";
 import type { Campaign } from "../types";
-import CopyPanel from "./CopyPanel";
 import MapBoard from "./MapBoard";
+import RoundTextDrawer from "./RoundTextDrawer";
 
 type GameScreenProps = {
   campaign: Campaign;
@@ -9,9 +10,10 @@ type GameScreenProps = {
 };
 
 export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScreenProps) {
+  const [textDrawerOpen, setTextDrawerOpen] = useState(false);
   const { game } = campaign;
   const activeCharacters = campaign.characters.filter((character) => character.status === "active");
-  const defeatedCharacters = campaign.characters.filter((character) => character.status === "defeated");
+  const deadCharacters = campaign.characters.filter((character) => character.status === "dead");
   const battleComplete = activeCharacters.length <= 1 && game.round > 0 && game.phase !== "outcome-hidden";
   const contestedAreaIds = game.phase === "outcome-hidden"
     ? game.pendingOutcomes.map((outcome) => outcome.areaId)
@@ -31,7 +33,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
           <h1>{game.round === 0 ? "The arena awaits" : `Round ${game.round}`}</h1>
         </div>
         <div className="game-header-actions">
-          <div className="survivor-count"><strong>{activeCharacters.length}</strong><span>active</span></div>
+          <div className="survivor-count"><strong>{activeCharacters.length}</strong><span>alive</span></div>
           <button className="secondary-button" onClick={onEditSetup}>Setup</button>
         </div>
       </header>
@@ -39,7 +41,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
       {battleComplete && (
         <section className="champion-banner">
           <p className="eyebrow">Battle complete</p>
-          <h2>{activeCharacters[0] ? `${activeCharacters[0].name} survives` : "No one survived"}</h2>
+          <h2>{activeCharacters[0] ? `${activeCharacters[0].name} survives with ${activeCharacters[0].power} power` : "No one survived"}</h2>
         </section>
       )}
 
@@ -51,7 +53,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
                 <span className={`phase-badge phase-badge--${game.phase}`}>
                   {game.phase === "outcome-hidden" ? "Outcome hidden on map" : game.phase === "revealed" ? "Results revealed" : "Ready"}
                 </span>
-                {game.phase === "outcome-hidden" && <p>Conflict winners are included in the copyable conflict text, but the map will not grey out losers until Reveal.</p>}
+                {game.phase === "outcome-hidden" && <p>Open Round text to read the result. The map remains unchanged until Reveal.</p>}
               </div>
             </div>
             <MapBoard
@@ -62,47 +64,43 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
             />
           </div>
 
-          <button className="primary-button advance-button" disabled={battleComplete} onClick={onAdvance}>
-            {battleComplete ? "Battle complete" : advanceLabel}
-          </button>
+          <div className="game-action-dock">
+            <button className="primary-button advance-button" disabled={battleComplete} onClick={onAdvance}>
+              {battleComplete ? "Battle complete" : advanceLabel}
+            </button>
+            <button
+              className="round-text-button"
+              disabled={!game.currentBasicText}
+              onClick={() => setTextDrawerOpen(true)}
+            >
+              <span>Round text</span>
+              <small>{game.currentConflictText ? "Basic + conflict" : game.currentBasicText ? "Basic" : "Available after movement"}</small>
+            </button>
+          </div>
         </div>
 
         <aside className="roster-panel panel">
           <div className="section-heading"><h2>Roster</h2><span>{campaign.characters.length} total</span></div>
           <div className="roster-list">
-            {[...activeCharacters, ...defeatedCharacters].map((character) => {
+            {[...activeCharacters, ...deadCharacters].map((character) => {
               const area = campaign.areas.find((candidate) => candidate.id === character.areaId);
               return (
-                <article className={`roster-item${character.status === "defeated" ? " is-defeated" : ""}`} key={character.id}>
+                <article className={`roster-item${character.status === "dead" ? " is-defeated" : ""}`} key={character.id}>
                   <img src={character.portrait} alt="" />
-                  <div><strong>{character.name}</strong><span>{character.status === "defeated" ? `Defeated in round ${character.defeatedInRound}` : area?.name}</span></div>
+                  <div className="roster-details">
+                    <div className="roster-name-row">
+                      <strong>{character.name}</strong>
+                      {character.invulnerable && <span className="invulnerable-mark" title="Invulnerable">◆</span>}
+                    </div>
+                    <span>{character.status === "dead" ? character.deathCause ?? `Died in round ${character.diedInRound}` : area?.name}</span>
+                  </div>
+                  <div className="power-value"><strong>{character.power}</strong><span>power</span></div>
                 </article>
               );
             })}
           </div>
         </aside>
       </section>
-
-      {game.currentBasicText && (
-        <section className="copy-section">
-          <div className="section-title-row"><div><p className="eyebrow">AI text ingredients</p><h2>Round copy</h2></div></div>
-          <div className="copy-grid">
-            <CopyPanel
-              title="Basic round"
-              description="Movements and major events, without conflict results."
-              text={game.currentBasicText}
-            />
-            {game.currentConflictText && (
-              <CopyPanel
-                title="Conflict"
-                description="Includes the winner and up to 12 randomized words or phrases."
-                text={game.currentConflictText}
-                accent
-              />
-            )}
-          </div>
-        </section>
-      )}
 
       {game.history.length > 0 && (
         <section className="panel history-panel">
@@ -117,6 +115,14 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
             ))}
           </div>
         </section>
+      )}
+
+      {textDrawerOpen && game.currentBasicText && (
+        <RoundTextDrawer
+          basicText={game.currentBasicText}
+          conflictText={game.currentConflictText}
+          onClose={() => setTextDrawerOpen(false)}
+        />
       )}
     </main>
   );

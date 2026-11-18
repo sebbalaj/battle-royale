@@ -88,12 +88,12 @@ export default function MapBoard({
               <div className="map-character-stack" aria-label={`Characters at ${area.name}`}>
                 {areaCharacters.map((character) => (
                   <div
-                    className={`map-character${character.status === "defeated" ? " is-defeated" : ""}`}
-                    title={`${character.name}${character.status === "defeated" ? " — defeated" : ""}`}
+                    className={`map-character${character.status === "dead" ? " is-defeated" : ""}${character.invulnerable ? " is-invulnerable" : ""}`}
+                    title={`${character.name} — ${character.power} power${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}`}
                     key={character.id}
                   >
                     <img src={character.portrait} alt="" />
-                    <span>{character.name.slice(0, 1).toUpperCase()}</span>
+                    <span className="map-power-badge">{character.power}</span>
                   </div>
                 ))}
               </div>
