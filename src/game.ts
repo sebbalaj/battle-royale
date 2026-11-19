@@ -410,24 +410,42 @@ const resolveGroundPickups = (
 
 // --- Sniper targeting (locked at Advance) ---------------------------------
 
-const rollSniperShots = (campaign: Campaign, characters: Character[]): SniperShot[] => {
+const rollSniperShots = (
+  campaign: Campaign,
+  characters: Character[],
+  conflictAreaIds: Set<string>,
+): SniperShot[] => {
   const settings = campaign.settings;
   const shots: SniperShot[] = [];
 
   for (const shooter of characters) {
     if (shooter.status !== "active" || shooter.weapon !== "sniper") continue;
+    // A shooter caught in a conflict this round is busy fighting and does not
+    // fire. Excluding conflict cells also keeps the two-phase invariant clean:
+    // a sniper never pre-locks a shot against someone whose power/position is
+    // still being decided by a conflict in the same Reveal.
+    if (conflictAreaIds.has(shooter.areaId)) continue;
     if (Math.random() >= settings.sniperHitChance) continue;
     const area = campaign.areas.find((candidate) => candidate.id === shooter.areaId);
     const neighborIds = area?.neighborIds ?? [];
     const targets = characters.filter(
       (character) =>
-        character.status === "active" && character.id !== shooter.id && neighborIds.includes(character.areaId),
+        character.status === "active" &&
+        character.id !== shooter.id &&
+        neighborIds.includes(character.areaId) &&
+        // Never target a character who is in a conflict this round: their fate
+        // (death, escape, power) is decided at Reveal and must not be clobbered.
+        !conflictAreaIds.has(character.areaId),
     );
     if (!targets.length) continue;
     const target = choose(targets);
     const instantKill = Math.random() < settings.sniperInstantKillChance;
     const damage = settings.sniperFlatDamage;
     const powerBefore = target.power;
+    // powerDelta is the signed change applied against live power at Reveal.
+    // For an instant kill the delta is unused (the shot kills outright unless
+    // the target is invulnerable); for a flat shot it is -damage.
+    const powerDelta = instantKill ? 0 : -damage;
     let powerAfter: number;
     let targetDies: boolean;
     if (instantKill) {
@@ -446,6 +464,7 @@ const rollSniperShots = (campaign: Campaign, characters: Character[]): SniperSho
       damage,
       targetPowerBefore: powerBefore,
       targetPowerAfter: powerAfter,
+      powerDelta,
       targetDies,
     });
   }
@@ -455,10 +474,18 @@ const rollSniperShots = (campaign: Campaign, characters: Character[]): SniperSho
 
 // --- Healing points (success + target locked at Advance) ------------------
 
-const rollHealEvents = (campaign: Campaign, characters: Character[]): HealEvent[] => {
+const rollHealEvents = (
+  campaign: Campaign,
+  characters: Character[],
+  conflictAreaIds: Set<string>,
+): HealEvent[] => {
   const events: HealEvent[] = [];
   for (const point of campaign.healingPoints) {
     if (point.cooldownRemaining > 0) continue;
+    // A contested cell resolves its conflict at Reveal; skip healing there so a
+    // pre-rolled absolute power cannot overwrite the fight result, and so an
+    // escaping loser is not healed from a cell they are leaving.
+    if (conflictAreaIds.has(point.areaId)) continue;
     const occupants = characters.filter(
       (character) => character.status === "active" && character.areaId === point.areaId,
     );
@@ -470,6 +497,7 @@ const rollHealEvents = (campaign: Campaign, characters: Character[]): HealEvent[
       characterId: occupant.id,
       pointId: point.id,
       pointName: point.name,
+      areaId: point.areaId,
       amount: point.healAmount,
       powerBefore,
       powerAfter: powerBefore + point.healAmount,
@@ -480,9 +508,18 @@ const rollHealEvents = (campaign: Campaign, characters: Character[]): HealEvent[
 
 // --- Danger points (damage locked at Advance) -----------------------------
 
-const rollDangerEvents = (campaign: Campaign, characters: Character[]): DangerEvent[] => {
+const rollDangerEvents = (
+  campaign: Campaign,
+  characters: Character[],
+  conflictAreaIds: Set<string>,
+): DangerEvent[] => {
   const events: DangerEvent[] = [];
   for (const point of campaign.dangerPoints) {
+    // A contested cell resolves its conflict at Reveal; skip danger there so a
+    // pre-rolled absolute power cannot overwrite the fight result, and so an
+    // escaping loser is not harmed by a cell they are leaving. The conflict
+    // itself already applies damage/death that round.
+    if (conflictAreaIds.has(point.areaId)) continue;
     const occupants = characters.filter(
       (character) => character.status === "active" && character.areaId === point.areaId,
     );
@@ -496,6 +533,7 @@ const rollDangerEvents = (campaign: Campaign, characters: Character[]): DangerEv
         characterId: occupant.id,
         pointId: point.id,
         pointName: point.name,
+        areaId: point.areaId,
         damage,
         powerBefore,
         powerAfter,
@@ -585,9 +623,14 @@ export const runRound = (campaign: Campaign): Campaign => {
   const charactersWithWeapons = pickupResult.characters;
 
   // Sniper / heal / danger are rolled and locked here, applied at Reveal.
-  const sniperShots = rollSniperShots(campaign, charactersWithWeapons);
-  const healEvents = rollHealEvents(campaign, charactersWithWeapons);
-  const dangerEvents = rollDangerEvents(campaign, charactersWithWeapons);
+  // Characters standing in a contested cell are excluded: their power and
+  // position are decided by the conflict at Reveal, so letting a point or
+  // sniper pre-lock an absolute power against the pre-conflict value would
+  // silently discard the fight result (and could hit an escaped loser at a
+  // cell they left). Conflicts already apply damage/death on those cells.
+  const sniperShots = rollSniperShots(campaign, charactersWithWeapons, conflictAreaIds);
+  const healEvents = rollHealEvents(campaign, charactersWithWeapons, conflictAreaIds);
+  const dangerEvents = rollDangerEvents(campaign, charactersWithWeapons, conflictAreaIds);
   const healingPointsAfter = advanceHealCooldowns(campaign, healEvents);
 
   const campaignAfterMovement: Campaign = {
@@ -700,13 +743,23 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
     }
   }
 
-  // 2) Sniper shots (pre-rolled). Skip targets already dead.
+  // Sniper / danger / heal are applied as the pre-rolled RANDOM decision (hit,
+  // instant-kill, damage amount, heal amount, target choice) combined with the
+  // signed power change applied against the character's LIVE power at Reveal.
+  // This keeps the two-phase invariant (randomness locked at Advance, reload
+  // cannot reroll) while composing correctly if more than one of these events
+  // lands on the same character in one round. Characters that were in a
+  // conflict this round are already excluded from these rolls at Advance, so
+  // conflict results are never clobbered here.
+
+  // 2) Sniper shots (pre-rolled). Skip targets already dead this Reveal.
   for (const shot of campaign.game.pendingSniperShots) {
     const shooter = find(shot.shooterId);
     if (!shooter || shooter.status !== "active") continue;
     characters = characters.map((character): Character => {
       if (character.id !== shot.targetId || character.status !== "active") return character;
-      if (shot.targetDies) {
+      if (shot.instantKill) {
+        if (character.invulnerable) return { ...character, power: Math.max(1, character.power) };
         return {
           ...character,
           power: 0,
@@ -716,15 +769,33 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           weapon: undefined,
         };
       }
-      return { ...character, power: shot.targetPowerAfter };
+      // Fall back to -damage for legacy pending shots saved before powerDelta.
+      const delta = Number.isFinite(shot.powerDelta) ? shot.powerDelta : -shot.damage;
+      const raw = character.power + delta;
+      if (!character.invulnerable && raw <= 0) {
+        return {
+          ...character,
+          power: 0,
+          status: "dead",
+          deathCause: `Shot dead by ${nameOfCharacter(campaign, shot.shooterId)}'s sniper.`,
+          diedInRound: campaign.game.round,
+          weapon: undefined,
+        };
+      }
+      return { ...character, power: character.invulnerable ? Math.max(1, raw) : raw };
     });
   }
 
-  // 3) Danger points (pre-rolled). Skip the already dead.
+  // 3) Danger points (pre-rolled). Skip the already dead, and skip a character
+  //    whose area changed (they left the danger cell during conflict escape).
   for (const event of campaign.game.pendingDangerEvents) {
     characters = characters.map((character): Character => {
       if (character.id !== event.characterId || character.status !== "active") return character;
-      if (event.died) {
+      // Legacy pending events (saved before areaId was tracked) have no areaId;
+      // apply them. Otherwise only apply if still in the point's cell.
+      if (event.areaId && character.areaId !== event.areaId) return character;
+      const raw = character.power - event.damage;
+      if (!character.invulnerable && raw <= 0) {
         return {
           ...character,
           power: 0,
@@ -734,15 +805,17 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           weapon: undefined,
         };
       }
-      return { ...character, power: event.powerAfter };
+      return { ...character, power: character.invulnerable ? Math.max(1, raw) : raw };
     });
   }
 
-  // 4) Healing points (pre-rolled). Skip the already dead.
+  // 4) Healing points (pre-rolled). Skip the already dead and anyone who left
+  //    the healing cell during conflict escape.
   for (const event of campaign.game.pendingHealEvents) {
     characters = characters.map((character): Character => {
       if (character.id !== event.characterId || character.status !== "active") return character;
-      return { ...character, power: event.powerAfter };
+      if (event.areaId && character.areaId !== event.areaId) return character;
+      return { ...character, power: character.power + event.amount };
     });
   }
 

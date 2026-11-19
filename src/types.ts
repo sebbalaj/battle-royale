@@ -123,6 +123,9 @@ export type SniperShot = {
   damage: number;
   targetPowerBefore: number;
   targetPowerAfter: number;
+  // Signed power delta applied against the target's LIVE power at Reveal.
+  // instantKill is carried separately because it kills regardless of power.
+  powerDelta: number;
   targetDies: boolean;
 };
 
@@ -138,6 +141,9 @@ export type HealEvent = {
   characterId: string;
   pointId: string;
   pointName: string;
+  // Cell the heal was rolled against. Applied at Reveal only if the character
+  // still occupies it, so a character moved by conflict is not healed remotely.
+  areaId: string;
   amount: number;
   powerBefore: number;
   powerAfter: number;
@@ -147,6 +153,8 @@ export type DangerEvent = {
   characterId: string;
   pointId: string;
   pointName: string;
+  // Cell the damage was rolled against (see HealEvent.areaId).
+  areaId: string;
   damage: number;
   powerBefore: number;
   powerAfter: number;

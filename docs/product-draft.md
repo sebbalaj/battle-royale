@@ -194,7 +194,11 @@ Pressing **Reveal conflicts** applies the locked results in a fixed order:
 3. Danger points.
 4. Healing points.
 
-Each later step skips a character who is already dead, so no one is revived or hurt twice. Reveal then greys out dead characters, updates every visible power value, and saves the revealed history record.
+To avoid one subsystem silently overwriting another within the same round, sniper, danger, and healing never roll against a character who is standing in a contested cell (a cell with a conflict this round). The conflict already decides that character's power, death, or escape. This also means a character who escapes a conflict is never hit by a danger or healing point on the cell they left, and a sniper never pre-locks a shot on someone whose fate is still being decided by a fight.
+
+Sniper, danger, and healing apply their locked random decision (hit, instant kill, damage amount, heal amount, chosen target) as a signed power change against the character's live power at Reveal, rather than overwriting it with an absolute value. Death is re-derived from the resulting power. When more than one of these events lands on the same character in a round, they compose instead of clobbering. Danger and healing also apply only if the character still occupies the point's cell at Reveal.
+
+Each later step skips a character who is already dead, so no one is revived or hurt twice. A sniper shot locked against a target who is dead by the time it resolves (for example, hit earlier in the Reveal order) is simply skipped; the shot is wasted on a corpse. Reveal then greys out dead characters, updates every visible power value, and saves the revealed history record.
 
 Because every outcome is pre-rolled at Advance and persisted, reloading during the hidden phase does not reroll any result.
 

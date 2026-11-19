@@ -31,6 +31,18 @@ type PlacementKind = "weapon" | "crate" | "heal" | "danger";
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`;
 
+const formatSigned = (value: number): string => (value > 0 ? `+${value}` : String(value));
+
+// Next default suffix for auto-named points. Derived from the highest existing
+// "<prefix> N" number so deletions never cause a duplicate default name.
+const nextPointNumber = (points: { name: string }[], prefix: string): number => {
+  const pattern = new RegExp(`^${prefix} (\\d+)$`);
+  const highest = points.reduce((max, point) => {
+    const match = point.name.match(pattern);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return highest + 1;
+};
 const randomWeapon = (): WeaponType => WEAPON_TYPES[Math.floor(Math.random() * WEAPON_TYPES.length)];
 const randomAreaId = (areas: Area[]): string => areas[Math.floor(Math.random() * areas.length)].id;
 
@@ -210,10 +222,12 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
   };
 
   // --- Map item placement ---------------------------------------------------
+  // Default names use the highest existing numeric suffix + 1 (not array
+  // length) so deleting a point and adding a new one never repeats a name.
   const makeHealingPoint = (areaId: string): HealingPoint => ({
     id: crypto.randomUUID(),
     areaId,
-    name: `Healing Point ${campaign.healingPoints.length + 1}`,
+    name: `Healing Point ${nextPointNumber(campaign.healingPoints, "Healing Point")}`,
     healAmount: settings.healAmount,
     chance: settings.healChance,
     cooldownRounds: settings.healCooldownRounds,
@@ -223,7 +237,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
   const makeDangerPoint = (areaId: string): DangerPoint => ({
     id: crypto.randomUUID(),
     areaId,
-    name: `Danger Point ${campaign.dangerPoints.length + 1}`,
+    name: `Danger Point ${nextPointNumber(campaign.dangerPoints, "Danger Point")}`,
     minDamage: settings.dangerMinDamage,
     maxDamage: settings.dangerMaxDamage,
   });
@@ -671,7 +685,10 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
       <section className="launch-panel">
         <div>
           <p className="eyebrow">Round rules</p>
-          <h2>50% stay · nearby movement · power changes by −2 to +2</h2>
+          <h2>
+            {Math.round(settings.stayChance * 100)}% stay · nearby movement · power changes by{" "}
+            {formatSigned(settings.powerChangeMin)} to {formatSigned(settings.powerChangeMax)}
+          </h2>
           {!canStart && <p className="validation-message">To start: add at least 2 characters, 2 cells, a route for every cell, starting positions, and 8 text entries.</p>}
         </div>
         <button className="primary-button launch-button" disabled={!canStart} onClick={onStart}>Start battle</button>
