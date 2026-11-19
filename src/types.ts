@@ -1,7 +1,9 @@
-export type Screen = "setup" | "game";
+export type Screen = "setup" | "settings" | "game";
 export type GamePhase = "ready" | "outcome-hidden" | "revealed";
 export type CharacterStatus = "active" | "dead";
 export type LoserFate = "died" | "escaped";
+
+export type WeaponType = "suppressed-pistol" | "sniper" | "knife" | "shotgun";
 
 export type Area = {
   id: string;
@@ -21,9 +23,64 @@ export type Character = {
   status: CharacterStatus;
   power: number;
   invulnerable: boolean;
+  weapon?: WeaponType;
   lastOpponentId?: string;
   deathCause?: string;
   diedInRound?: number;
+};
+
+export type MapWeapon = {
+  id: string;
+  areaId: string;
+  weapon: WeaponType;
+};
+
+export type Crate = {
+  id: string;
+  areaId: string;
+  weapon: WeaponType;
+  opened: boolean;
+};
+
+export type HealingPoint = {
+  id: string;
+  areaId: string;
+  name: string;
+  healAmount: number;
+  chance: number;
+  cooldownRounds: number;
+  cooldownRemaining: number;
+};
+
+export type DangerPoint = {
+  id: string;
+  areaId: string;
+  name: string;
+  minDamage: number;
+  maxDamage: number;
+};
+
+export type Settings = {
+  stayChance: number;
+  powerChangeMin: number;
+  powerChangeMax: number;
+  startingPower: number;
+  sniperHitChance: number;
+  sniperFlatDamage: number;
+  sniperInstantKillChance: number;
+  weaponBonuses: Record<WeaponType, number>;
+  crateFindChance: number;
+  healAmount: number;
+  healChance: number;
+  healCooldownRounds: number;
+  dangerMinDamage: number;
+  dangerMaxDamage: number;
+  deathChanceBase: number;
+  deathChancePerPower: number;
+  deathChanceLowPowerBonus: number;
+  winnerDamageCapPct: number;
+  escapePowerMin: number;
+  escapePowerMax: number;
 };
 
 export type Movement = {
@@ -58,10 +115,52 @@ export type ConflictOutcome = {
   fights: FightExchange[];
 };
 
+export type SniperShot = {
+  shooterId: string;
+  targetId: string;
+  hit: boolean;
+  instantKill: boolean;
+  damage: number;
+  targetPowerBefore: number;
+  targetPowerAfter: number;
+  targetDies: boolean;
+};
+
+export type WeaponPickup = {
+  characterId: string;
+  areaId: string;
+  weapon: WeaponType;
+  source: "crate" | "ground" | "drop";
+  replaced?: WeaponType;
+};
+
+export type HealEvent = {
+  characterId: string;
+  pointId: string;
+  pointName: string;
+  amount: number;
+  powerBefore: number;
+  powerAfter: number;
+};
+
+export type DangerEvent = {
+  characterId: string;
+  pointId: string;
+  pointName: string;
+  damage: number;
+  powerBefore: number;
+  powerAfter: number;
+  died: boolean;
+};
+
 export type RoundRecord = {
   round: number;
   movements: Movement[];
   conflicts: ConflictOutcome[];
+  sniperShots: SniperShot[];
+  pickups: WeaponPickup[];
+  healEvents: HealEvent[];
+  dangerEvents: DangerEvent[];
   basicText: string;
   conflictText: string;
   revealed: boolean;
@@ -71,19 +170,47 @@ export type GameState = {
   round: number;
   phase: GamePhase;
   pendingOutcomes: ConflictOutcome[];
+  pendingSniperShots: SniperShot[];
+  pendingPickups: WeaponPickup[];
+  pendingHealEvents: HealEvent[];
+  pendingDangerEvents: DangerEvent[];
   currentBasicText: string;
   currentConflictText: string;
   history: RoundRecord[];
 };
 
+export type LayoutData = {
+  name: string;
+  mapImage: string;
+  areas: Area[];
+  characters: Character[];
+  phraseSource: string;
+  weapons: MapWeapon[];
+  crates: Crate[];
+  healingPoints: HealingPoint[];
+  dangerPoints: DangerPoint[];
+};
+
+export type LayoutSlot = {
+  id: string;
+  name: string;
+  savedAt: number;
+  data: LayoutData;
+};
+
 export type Campaign = {
-  version: 2;
+  version: 3;
   name: string;
   mapImage: string;
   areas: Area[];
   characters: Character[];
   phraseSource: string;
   stayChance: number;
+  weapons: MapWeapon[];
+  crates: Crate[];
+  healingPoints: HealingPoint[];
+  dangerPoints: DangerPoint[];
+  settings: Settings;
   screen: Screen;
   game: GameState;
 };

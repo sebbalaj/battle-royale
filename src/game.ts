@@ -238,7 +238,18 @@ export const runRound = (campaign: Campaign): Campaign => {
       currentConflictText: conflictText,
       history: [
         ...campaign.game.history,
-        { round: nextRound, movements, conflicts, basicText, conflictText, revealed: false },
+        {
+          round: nextRound,
+          movements,
+          conflicts,
+          sniperShots: [],
+          pickups: [],
+          healEvents: [],
+          dangerEvents: [],
+          basicText,
+          conflictText,
+          revealed: false,
+        },
       ],
     },
   };

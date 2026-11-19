@@ -1,11 +1,53 @@
-import type { Campaign, Character, GameState } from "./types";
+import type {
+  Campaign,
+  Character,
+  Crate,
+  DangerPoint,
+  GameState,
+  HealingPoint,
+  MapWeapon,
+  Settings,
+  WeaponType,
+} from "./types";
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`;
+
+export const defaultSettings = (): Settings => ({
+  stayChance: 0.5,
+  powerChangeMin: -2,
+  powerChangeMax: 2,
+  startingPower: 7,
+  sniperHitChance: 0.1,
+  sniperFlatDamage: 3,
+  sniperInstantKillChance: 0.5,
+  weaponBonuses: {
+    shotgun: 4,
+    "suppressed-pistol": 2,
+    knife: 1,
+    sniper: 0,
+  },
+  crateFindChance: 0.5,
+  healAmount: 3,
+  healChance: 0.5,
+  healCooldownRounds: 3,
+  dangerMinDamage: 1,
+  dangerMaxDamage: 4,
+  deathChanceBase: 0.5,
+  deathChancePerPower: 0.05,
+  deathChanceLowPowerBonus: 0.1,
+  winnerDamageCapPct: 0.5,
+  escapePowerMin: 1,
+  escapePowerMax: 2,
+});
 
 export const emptyGameState = (): GameState => ({
   round: 0,
   phase: "ready",
   pendingOutcomes: [],
+  pendingSniperShots: [],
+  pendingPickups: [],
+  pendingHealEvents: [],
+  pendingDangerEvents: [],
   currentBasicText: "",
   currentConflictText: "",
   history: [],
@@ -28,7 +70,7 @@ const defaultCharacter = (
 });
 
 export const createDefaultCampaign = (): Campaign => ({
-  version: 2,
+  version: 3,
   name: "The Shattered Reach",
   mapImage: asset("placeholder-map.svg"),
   areas: [
@@ -48,6 +90,11 @@ export const createDefaultCampaign = (): Campaign => ({
   ],
   phraseSource: "fog; broken sword; betrayal; silent footsteps; red moon; hidden passage; ancient debt; sudden storm; burning banner; whispered warning; lost crown; poisoned river; unexpected ally; distant bells; final oath; shattered shield",
   stayChance: 0.5,
+  weapons: [],
+  crates: [],
+  healingPoints: [],
+  dangerPoints: [],
+  settings: defaultSettings(),
   screen: "setup",
   game: emptyGameState(),
 });
@@ -58,10 +105,17 @@ type StoredCampaign = Partial<Omit<Campaign, "characters" | "version">> & {
   characters?: StoredCharacter[];
 };
 
+const WEAPON_TYPES: WeaponType[] = ["suppressed-pistol", "sniper", "knife", "shotgun"];
+
+const asWeaponType = (value: unknown): WeaponType | undefined =>
+  typeof value === "string" && (WEAPON_TYPES as string[]).includes(value) ? (value as WeaponType) : undefined;
+
 export const migrateCampaign = (saved: unknown): Campaign | undefined => {
   if (!saved || typeof saved !== "object") return undefined;
   const stored = saved as StoredCampaign;
   if (!stored.name || !stored.mapImage || !stored.areas || !stored.characters || !stored.phraseSource) return undefined;
+
+  const isV3 = stored.version === 3;
 
   const characters: Character[] = stored.characters.map((character, index) => ({
     id: character.id ?? crypto.randomUUID(),
@@ -72,20 +126,26 @@ export const migrateCampaign = (saved: unknown): Campaign | undefined => {
     status: character.status === "defeated" || character.status === "dead" ? "dead" : "active",
     power: Number.isFinite(character.power) ? Number(character.power) : 7,
     invulnerable: Boolean(character.invulnerable),
+    weapon: asWeaponType(character.weapon),
     lastOpponentId: character.lastOpponentId,
     deathCause: character.deathCause,
     diedInRound: character.diedInRound,
   }));
 
   return {
-    version: 2,
+    version: 3,
     name: stored.name,
     mapImage: stored.mapImage,
     areas: stored.areas,
     characters,
     phraseSource: stored.phraseSource,
     stayChance: stored.stayChance ?? 0.5,
-    screen: stored.version === 2 ? stored.screen ?? "setup" : "setup",
-    game: stored.version === 2 && stored.game ? stored.game : emptyGameState(),
+    weapons: isV3 && Array.isArray(stored.weapons) ? (stored.weapons as MapWeapon[]) : [],
+    crates: isV3 && Array.isArray(stored.crates) ? (stored.crates as Crate[]) : [],
+    healingPoints: isV3 && Array.isArray(stored.healingPoints) ? (stored.healingPoints as HealingPoint[]) : [],
+    dangerPoints: isV3 && Array.isArray(stored.dangerPoints) ? (stored.dangerPoints as DangerPoint[]) : [],
+    settings: isV3 && stored.settings ? { ...defaultSettings(), ...stored.settings } : defaultSettings(),
+    screen: isV3 ? stored.screen ?? "setup" : "setup",
+    game: isV3 && stored.game ? { ...emptyGameState(), ...stored.game } : emptyGameState(),
   };
 };
