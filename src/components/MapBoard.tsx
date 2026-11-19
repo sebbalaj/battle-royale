@@ -1,5 +1,6 @@
 import type { MouseEvent } from "react";
-import type { Area, Character } from "../types";
+import type { Area, Character, Crate, DangerPoint, HealingPoint, MapWeapon, SniperShot } from "../types";
+import { WEAPON_GLYPHS, WEAPON_NAMES } from "../weapons";
 
 type MapBoardProps = {
   mapImage: string;
@@ -9,6 +10,11 @@ type MapBoardProps = {
   selectedAreaId?: string;
   connectFromId?: string;
   contestedAreaIds?: string[];
+  weapons?: MapWeapon[];
+  crates?: Crate[];
+  healingPoints?: HealingPoint[];
+  dangerPoints?: DangerPoint[];
+  sniperShots?: SniperShot[];
   onPlace?: (x: number, y: number) => void;
   onAreaClick?: (areaId: string) => void;
 };
@@ -21,6 +27,11 @@ export default function MapBoard({
   selectedAreaId,
   connectFromId,
   contestedAreaIds = [],
+  weapons = [],
+  crates = [],
+  healingPoints = [],
+  dangerPoints = [],
+  sniperShots = [],
   onPlace,
   onAreaClick,
 }: MapBoardProps) {
@@ -30,6 +41,8 @@ export default function MapBoard({
       .map((neighborId) => ({ from: area, to: areas.find((candidate) => candidate.id === neighborId) }))
       .filter((connection): connection is { from: Area; to: Area } => Boolean(connection.to)),
   );
+
+  const targetedCharacterIds = new Set(sniperShots.map((shot) => shot.targetId));
 
   const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
     if (mode !== "place" || !onPlace) return;
@@ -63,6 +76,36 @@ export default function MapBoard({
         const isSelected = area.id === selectedAreaId;
         const isConnectStart = area.id === connectFromId;
         const isContested = contestedAreaIds.includes(area.id);
+        const areaWeapons = weapons.filter((weapon) => weapon.areaId === area.id);
+        const areaCrates = crates.filter((crate) => crate.areaId === area.id && !crate.opened);
+        const areaHeals = healingPoints.filter((point) => point.areaId === area.id);
+        const areaDangers = dangerPoints.filter((point) => point.areaId === area.id);
+        const markers: { key: string; className: string; glyph: string; title: string }[] = [
+          ...areaWeapons.map((weapon) => ({
+            key: `w-${weapon.id}`,
+            className: "map-marker map-marker--weapon",
+            glyph: WEAPON_GLYPHS[weapon.weapon],
+            title: `Dropped ${WEAPON_NAMES[weapon.weapon]}`,
+          })),
+          ...areaCrates.map((crate) => ({
+            key: `c-${crate.id}`,
+            className: "map-marker map-marker--crate",
+            glyph: "📦",
+            title: "Crate",
+          })),
+          ...areaHeals.map((point) => ({
+            key: `h-${point.id}`,
+            className: "map-marker map-marker--heal",
+            glyph: "✚",
+            title: `${point.name}${point.cooldownRemaining > 0 ? ` (cooldown ${point.cooldownRemaining})` : ""}`,
+          })),
+          ...areaDangers.map((point) => ({
+            key: `d-${point.id}`,
+            className: "map-marker map-marker--danger",
+            glyph: "☠",
+            title: point.name,
+          })),
+        ];
         return (
           <div
             className="area-anchor"
@@ -84,18 +127,32 @@ export default function MapBoard({
             >
               <span className="area-name">{area.name}</span>
             </button>
+            {markers.length > 0 && (
+              <div className="map-marker-stack" aria-hidden="true">
+                {markers.map((marker) => (
+                  <span className={marker.className} title={marker.title} key={marker.key}>{marker.glyph}</span>
+                ))}
+              </div>
+            )}
             {areaCharacters.length > 0 && (
               <div className="map-character-stack" aria-label={`Characters at ${area.name}`}>
-                {areaCharacters.map((character) => (
-                  <div
-                    className={`map-character${character.status === "dead" ? " is-defeated" : ""}${character.invulnerable ? " is-invulnerable" : ""}`}
-                    title={`${character.name} — ${character.power} power${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}`}
-                    key={character.id}
-                  >
-                    <img src={character.portrait} alt="" />
-                    <span className="map-power-badge">{character.power}</span>
-                  </div>
-                ))}
+                {areaCharacters.map((character) => {
+                  const isTargeted = targetedCharacterIds.has(character.id) && character.status === "active";
+                  return (
+                    <div
+                      className={`map-character${character.status === "dead" ? " is-defeated" : ""}${character.invulnerable ? " is-invulnerable" : ""}${isTargeted ? " is-targeted" : ""}`}
+                      title={`${character.name} — ${character.power} power${character.weapon ? ` — ${WEAPON_NAMES[character.weapon]}` : ""}${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}${isTargeted ? " — in a sniper's sights" : ""}`}
+                      key={character.id}
+                    >
+                      <img src={character.portrait} alt="" />
+                      {character.weapon && (
+                        <span className="map-weapon-badge" title={WEAPON_NAMES[character.weapon]}>{WEAPON_GLYPHS[character.weapon]}</span>
+                      )}
+                      {isTargeted && <span className="map-target-badge" aria-hidden="true">◎</span>}
+                      <span className="map-power-badge">{character.power}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

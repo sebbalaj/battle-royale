@@ -1,7 +1,21 @@
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { readImageFile } from "../imageFiles";
-import { parseEntries } from "../game";
-import type { Area, Campaign, Character } from "../types";
+import { buildSetupPrompt, parseEntries } from "../game";
+import { deleteLayout, listLayouts, saveLayout } from "../storage";
+import { emptyGameState } from "../data";
+import type {
+  Area,
+  Campaign,
+  Character,
+  Crate,
+  DangerPoint,
+  HealingPoint,
+  LayoutSlot,
+  MapWeapon,
+  WeaponType,
+} from "../types";
+import { WEAPON_NAMES, WEAPON_TYPES } from "../weapons";
+import CopyPanel from "./CopyPanel";
 import MapBoard from "./MapBoard";
 
 type SetupScreenProps = {
@@ -9,20 +23,42 @@ type SetupScreenProps = {
   onChange: (campaign: Campaign) => void;
   onStart: () => void;
   onReset: () => void;
+  onOpenSettings: () => void;
 };
 
 type EditTool = "select" | "place" | "connect";
+type PlacementKind = "weapon" | "crate" | "heal" | "danger";
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`;
 
-export default function SetupScreen({ campaign, onChange, onStart, onReset }: SetupScreenProps) {
+const randomWeapon = (): WeaponType => WEAPON_TYPES[Math.floor(Math.random() * WEAPON_TYPES.length)];
+const randomAreaId = (areas: Area[]): string => areas[Math.floor(Math.random() * areas.length)].id;
+
+export default function SetupScreen({ campaign, onChange, onStart, onReset, onOpenSettings }: SetupScreenProps) {
   const [tool, setTool] = useState<EditTool>("select");
+  const [placementKind, setPlacementKind] = useState<PlacementKind>("weapon");
+  const [placementWeapon, setPlacementWeapon] = useState<WeaponType>("shotgun");
   const [selectedAreaId, setSelectedAreaId] = useState(campaign.areas[0]?.id ?? "");
   const [connectFromId, setConnectFromId] = useState("");
   const [imageError, setImageError] = useState("");
   const [textFileError, setTextFileError] = useState("");
+  const [layouts, setLayouts] = useState<LayoutSlot[]>([]);
+  const [layoutName, setLayoutName] = useState("");
+  const [layoutError, setLayoutError] = useState("");
   const entries = useMemo(() => parseEntries(campaign.phraseSource), [campaign.phraseSource]);
+  const setupPrompt = useMemo(() => buildSetupPrompt(campaign), [campaign]);
   const selectedArea = campaign.areas.find((area) => area.id === selectedAreaId);
+  const settings = campaign.settings;
+
+  const refreshLayouts = () => {
+    void listLayouts()
+      .then(setLayouts)
+      .catch(() => setLayoutError("Saved layouts are unavailable in this browser session."));
+  };
+
+  useEffect(() => {
+    refreshLayouts();
+  }, []);
 
   const updateAreas = (areas: Area[]) => onChange({ ...campaign, areas });
 
@@ -117,7 +153,15 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
         ? { ...character, startAreaId: fallbackAreaId, areaId: fallbackAreaId }
         : character,
     );
-    onChange({ ...campaign, areas, characters });
+    onChange({
+      ...campaign,
+      areas,
+      characters,
+      weapons: campaign.weapons.filter((weapon) => weapon.areaId !== selectedArea.id),
+      crates: campaign.crates.filter((crate) => crate.areaId !== selectedArea.id),
+      healingPoints: campaign.healingPoints.filter((point) => point.areaId !== selectedArea.id),
+      dangerPoints: campaign.dangerPoints.filter((point) => point.areaId !== selectedArea.id),
+    });
     setSelectedAreaId(fallbackAreaId);
   };
 
@@ -130,7 +174,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
       startAreaId: campaign.areas[0]?.id ?? "",
       areaId: campaign.areas[0]?.id ?? "",
       status: "active",
-      power: 7,
+      power: settings.startingPower,
       invulnerable: false,
     };
     onChange({ ...campaign, characters: [...campaign.characters, character] });
@@ -165,6 +209,162 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
     onChange({ ...campaign, characters: campaign.characters.filter((candidate) => candidate.id !== characterId) });
   };
 
+  // --- Map item placement ---------------------------------------------------
+  const makeHealingPoint = (areaId: string): HealingPoint => ({
+    id: crypto.randomUUID(),
+    areaId,
+    name: `Healing Point ${campaign.healingPoints.length + 1}`,
+    healAmount: settings.healAmount,
+    chance: settings.healChance,
+    cooldownRounds: settings.healCooldownRounds,
+    cooldownRemaining: 0,
+  });
+
+  const makeDangerPoint = (areaId: string): DangerPoint => ({
+    id: crypto.randomUUID(),
+    areaId,
+    name: `Danger Point ${campaign.dangerPoints.length + 1}`,
+    minDamage: settings.dangerMinDamage,
+    maxDamage: settings.dangerMaxDamage,
+  });
+
+  const placeItem = (areaId: string) => {
+    if (!areaId) return;
+    if (placementKind === "weapon") {
+      const weapon: MapWeapon = { id: crypto.randomUUID(), areaId, weapon: placementWeapon };
+      onChange({ ...campaign, weapons: [...campaign.weapons, weapon] });
+    } else if (placementKind === "crate") {
+      const crate: Crate = { id: crypto.randomUUID(), areaId, weapon: randomWeapon(), opened: false };
+      onChange({ ...campaign, crates: [...campaign.crates, crate] });
+    } else if (placementKind === "heal") {
+      onChange({ ...campaign, healingPoints: [...campaign.healingPoints, makeHealingPoint(areaId)] });
+    } else {
+      onChange({ ...campaign, dangerPoints: [...campaign.dangerPoints, makeDangerPoint(areaId)] });
+    }
+  };
+
+  const updateHealingPoint = (id: string, patch: Partial<HealingPoint>) => {
+    onChange({
+      ...campaign,
+      healingPoints: campaign.healingPoints.map((point) => (point.id === id ? { ...point, ...patch } : point)),
+    });
+  };
+
+  const updateDangerPoint = (id: string, patch: Partial<DangerPoint>) => {
+    onChange({
+      ...campaign,
+      dangerPoints: campaign.dangerPoints.map((point) => (point.id === id ? { ...point, ...patch } : point)),
+    });
+  };
+
+  const removeWeapon = (id: string) => onChange({ ...campaign, weapons: campaign.weapons.filter((item) => item.id !== id) });
+  const removeCrate = (id: string) => onChange({ ...campaign, crates: campaign.crates.filter((item) => item.id !== id) });
+  const removeHealingPoint = (id: string) => onChange({ ...campaign, healingPoints: campaign.healingPoints.filter((item) => item.id !== id) });
+  const removeDangerPoint = (id: string) => onChange({ ...campaign, dangerPoints: campaign.dangerPoints.filter((item) => item.id !== id) });
+
+  const areaName = (areaId: string) => campaign.areas.find((area) => area.id === areaId)?.name ?? "Unknown cell";
+
+  const randomizeItems = () => {
+    if (campaign.areas.length === 0) return;
+    if (!window.confirm("Scatter random weapons, crates, healing points, and danger points across the map? This replaces current placements.")) return;
+    const cellCount = campaign.areas.length;
+    const weaponCount = Math.max(1, Math.round(cellCount / 2));
+    const crateCount = Math.max(1, Math.round(cellCount / 3));
+    const healCount = Math.max(1, Math.round(cellCount / 4));
+    const dangerCount = Math.max(1, Math.round(cellCount / 4));
+    const weapons: MapWeapon[] = Array.from({ length: weaponCount }, () => ({
+      id: crypto.randomUUID(),
+      areaId: randomAreaId(campaign.areas),
+      weapon: randomWeapon(),
+    }));
+    const crates: Crate[] = Array.from({ length: crateCount }, () => ({
+      id: crypto.randomUUID(),
+      areaId: randomAreaId(campaign.areas),
+      weapon: randomWeapon(),
+      opened: false,
+    }));
+    const healingPoints: HealingPoint[] = Array.from({ length: healCount }, (_, index) => ({
+      id: crypto.randomUUID(),
+      areaId: randomAreaId(campaign.areas),
+      name: `Healing Point ${index + 1}`,
+      healAmount: settings.healAmount,
+      chance: settings.healChance,
+      cooldownRounds: settings.healCooldownRounds,
+      cooldownRemaining: 0,
+    }));
+    const dangerPoints: DangerPoint[] = Array.from({ length: dangerCount }, (_, index) => ({
+      id: crypto.randomUUID(),
+      areaId: randomAreaId(campaign.areas),
+      name: `Danger Point ${index + 1}`,
+      minDamage: settings.dangerMinDamage,
+      maxDamage: settings.dangerMaxDamage,
+    }));
+    onChange({ ...campaign, weapons, crates, healingPoints, dangerPoints });
+  };
+
+  // --- Layout slots ---------------------------------------------------------
+  const handleSaveLayout = async () => {
+    const name = layoutName.trim();
+    if (!name) {
+      setLayoutError("Name the layout before saving.");
+      return;
+    }
+    const slot: LayoutSlot = {
+      id: crypto.randomUUID(),
+      name,
+      savedAt: Date.now(),
+      data: {
+        name: campaign.name,
+        mapImage: campaign.mapImage,
+        areas: campaign.areas,
+        characters: campaign.characters,
+        phraseSource: campaign.phraseSource,
+        weapons: campaign.weapons,
+        crates: campaign.crates,
+        healingPoints: campaign.healingPoints,
+        dangerPoints: campaign.dangerPoints,
+      },
+    };
+    try {
+      await saveLayout(slot);
+      setLayoutName("");
+      setLayoutError("");
+      refreshLayouts();
+    } catch {
+      setLayoutError("The layout could not be saved locally.");
+    }
+  };
+
+  const loadLayout = (slot: LayoutSlot) => {
+    if (!window.confirm(`Load "${slot.name}"? This replaces the current map, cells, characters, and placed items. Settings are kept.`)) return;
+    const { data } = slot;
+    onChange({
+      ...campaign,
+      name: data.name,
+      mapImage: data.mapImage,
+      areas: data.areas,
+      characters: data.characters,
+      phraseSource: data.phraseSource,
+      weapons: data.weapons,
+      crates: data.crates,
+      healingPoints: data.healingPoints,
+      dangerPoints: data.dangerPoints,
+      screen: "setup",
+      game: emptyGameState(),
+    });
+    setSelectedAreaId(data.areas[0]?.id ?? "");
+  };
+
+  const removeLayout = async (slot: LayoutSlot) => {
+    if (!window.confirm(`Delete layout "${slot.name}"?`)) return;
+    try {
+      await deleteLayout(slot.id);
+      refreshLayouts();
+    } catch {
+      setLayoutError("The layout could not be deleted.");
+    }
+  };
+
   const setupCharacters = campaign.characters.map((character) => ({
     ...character,
     areaId: character.startAreaId,
@@ -177,6 +377,8 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
     && campaign.characters.every((character) => character.name.trim() && character.startAreaId)
     && entries.length >= 8;
 
+  const totalItems = campaign.weapons.length + campaign.crates.length + campaign.healingPoints.length + campaign.dangerPoints.length;
+
   return (
     <main className="app-shell setup-screen">
       <header className="hero">
@@ -185,7 +387,10 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
           <h1>Build the arena</h1>
           <p className="hero-copy">Upload your images here. They remain saved only in this browser on this device.</p>
         </div>
-        <div className="save-pill"><span className="save-dot" /> Auto-saved locally</div>
+        <div className="setup-header-actions">
+          <button className="secondary-button" onClick={onOpenSettings}>Settings</button>
+          <div className="save-pill"><span className="save-dot" /> Auto-saved locally</div>
+        </div>
       </header>
 
       <section className="panel setup-section">
@@ -221,6 +426,10 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
           mapImage={campaign.mapImage}
           areas={campaign.areas}
           characters={setupCharacters}
+          weapons={campaign.weapons}
+          crates={campaign.crates}
+          healingPoints={campaign.healingPoints}
+          dangerPoints={campaign.dangerPoints}
           mode={tool}
           selectedAreaId={selectedAreaId}
           connectFromId={connectFromId}
@@ -267,8 +476,18 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
                     {campaign.areas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}
                   </select>
                 </label>
+                <label className="field">
+                  <span>Weapon</span>
+                  <select
+                    value={character.weapon ?? ""}
+                    onChange={(event) => updateCharacter(character.id, { weapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
+                  >
+                    <option value="">None</option>
+                    {WEAPON_TYPES.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
+                  </select>
+                </label>
                 <div className="character-rule-row">
-                  <span className="starting-power">Starts at <strong>7 power</strong></span>
+                  <span className="starting-power">Starts at <strong>{settings.startingPower} power</strong></span>
                   <label className="invulnerable-toggle">
                     <input
                       type="checkbox"
@@ -290,6 +509,103 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
 
       <section className="panel setup-section">
         <div className="section-heading">
+          <div><span className="step-number">05</span><h2>Weapons, crates, and points</h2></div>
+          <button className="secondary-button" onClick={randomizeItems}>Randomize</button>
+        </div>
+        <p className="helper-text">Choose an item, pick a cell, and add it. Weapon power bonuses are set in Settings and stay hidden on the map.</p>
+        <div className="placement-controls">
+          <div className="segmented-control" aria-label="Item to place">
+            <button className={placementKind === "weapon" ? "is-active" : ""} onClick={() => setPlacementKind("weapon")}>Weapon</button>
+            <button className={placementKind === "crate" ? "is-active" : ""} onClick={() => setPlacementKind("crate")}>Crate</button>
+            <button className={placementKind === "heal" ? "is-active" : ""} onClick={() => setPlacementKind("heal")}>Healing</button>
+            <button className={placementKind === "danger" ? "is-active" : ""} onClick={() => setPlacementKind("danger")}>Danger</button>
+          </div>
+          <label className="field">
+            <span>Cell</span>
+            <select value={selectedAreaId} onChange={(event) => setSelectedAreaId(event.target.value)}>
+              {campaign.areas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}
+            </select>
+          </label>
+          {placementKind === "weapon" && (
+            <label className="field">
+              <span>Weapon type</span>
+              <select value={placementWeapon} onChange={(event) => setPlacementWeapon(event.target.value as WeaponType)}>
+                {WEAPON_TYPES.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
+              </select>
+            </label>
+          )}
+          <button className="primary-button" disabled={!selectedAreaId} onClick={() => placeItem(selectedAreaId)}>Add to cell</button>
+        </div>
+
+        {totalItems === 0 ? (
+          <p className="helper-text">No items placed yet.</p>
+        ) : (
+          <div className="placed-items">
+            {campaign.weapons.length > 0 && (
+              <div className="placed-group">
+                <h3>Ground weapons</h3>
+                {campaign.weapons.map((weapon) => (
+                  <div className="placed-row" key={weapon.id}>
+                    <span className="placed-label">{WEAPON_NAMES[weapon.weapon]} · {areaName(weapon.areaId)}</span>
+                    <button className="text-button danger-text" onClick={() => removeWeapon(weapon.id)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {campaign.crates.length > 0 && (
+              <div className="placed-group">
+                <h3>Crates</h3>
+                {campaign.crates.map((crate) => (
+                  <div className="placed-row" key={crate.id}>
+                    <span className="placed-label">Crate · {areaName(crate.areaId)}{crate.opened ? " (opened)" : ""}</span>
+                    <button className="text-button danger-text" onClick={() => removeCrate(crate.id)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {campaign.healingPoints.length > 0 && (
+              <div className="placed-group">
+                <h3>Healing points</h3>
+                {campaign.healingPoints.map((point) => (
+                  <div className="placed-config" key={point.id}>
+                    <div className="placed-config-head">
+                      <span className="placed-cell">{areaName(point.areaId)}</span>
+                      <button className="text-button danger-text" onClick={() => removeHealingPoint(point.id)}>Delete</button>
+                    </div>
+                    <div className="placed-config-fields">
+                      <label className="field"><span>Name</span><input value={point.name} onChange={(event) => updateHealingPoint(point.id, { name: event.target.value })} /></label>
+                      <label className="field"><span>Heal amount</span><input type="number" min="0" value={point.healAmount} onChange={(event) => updateHealingPoint(point.id, { healAmount: Number(event.target.value) })} /></label>
+                      <label className="field"><span>Chance (0–1)</span><input type="number" min="0" max="1" step="0.05" value={point.chance} onChange={(event) => updateHealingPoint(point.id, { chance: Number(event.target.value) })} /></label>
+                      <label className="field"><span>Cooldown (rounds)</span><input type="number" min="0" value={point.cooldownRounds} onChange={(event) => updateHealingPoint(point.id, { cooldownRounds: Number(event.target.value) })} /></label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {campaign.dangerPoints.length > 0 && (
+              <div className="placed-group">
+                <h3>Danger points</h3>
+                {campaign.dangerPoints.map((point) => (
+                  <div className="placed-config" key={point.id}>
+                    <div className="placed-config-head">
+                      <span className="placed-cell">{areaName(point.areaId)}</span>
+                      <button className="text-button danger-text" onClick={() => removeDangerPoint(point.id)}>Delete</button>
+                    </div>
+                    <div className="placed-config-fields">
+                      <label className="field"><span>Name</span><input value={point.name} onChange={(event) => updateDangerPoint(point.id, { name: event.target.value })} /></label>
+                      <label className="field"><span>Min damage</span><input type="number" min="0" value={point.minDamage} onChange={(event) => updateDangerPoint(point.id, { minDamage: Number(event.target.value) })} /></label>
+                      <label className="field"><span>Max damage</span><input type="number" min="0" value={point.maxDamage} onChange={(event) => updateDangerPoint(point.id, { maxDamage: Number(event.target.value) })} /></label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="panel setup-section">
+        <div className="section-heading">
           <div><span className="step-number">04</span><h2>Story words and phrases</h2></div>
           <div className="section-actions">
             <span className={`entry-count${entries.length < 8 ? " is-low" : ""}`}>{entries.length} entries</span>
@@ -304,6 +620,51 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset }: Se
           onChange={(event) => onChange({ ...campaign, phraseSource: event.target.value })}
           rows={6}
           spellCheck="true"
+        />
+      </section>
+
+      <section className="panel setup-section">
+        <div className="section-heading">
+          <div><span className="step-number">06</span><h2>Saved layouts</h2></div>
+        </div>
+        <p className="helper-text">Save the current map, cells, characters, and placed items as a named layout. Loading a layout keeps your Settings untouched.</p>
+        {layoutError && <p className="error-message" role="alert">{layoutError}</p>}
+        <div className="layout-save-row">
+          <label className="field">
+            <span>Layout name</span>
+            <input value={layoutName} onChange={(event) => setLayoutName(event.target.value)} placeholder="e.g. Forest skirmish" />
+          </label>
+          <button className="secondary-button" onClick={() => void handleSaveLayout()}>Save current setup</button>
+        </div>
+        {layouts.length === 0 ? (
+          <p className="helper-text">No saved layouts yet.</p>
+        ) : (
+          <div className="layout-list">
+            {layouts.map((slot) => (
+              <div className="layout-row" key={slot.id}>
+                <div className="layout-meta">
+                  <strong>{slot.name}</strong>
+                  <span>{new Date(slot.savedAt).toLocaleString()}</span>
+                </div>
+                <div className="layout-actions">
+                  <button className="secondary-button" onClick={() => loadLayout(slot)}>Load</button>
+                  <button className="text-button danger-text" onClick={() => void removeLayout(slot)}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="panel setup-section">
+        <div className="section-heading">
+          <div><span className="step-number">07</span><h2>World description for an AI</h2></div>
+        </div>
+        <p className="helper-text">Copy this to describe the map connections, starting locations, points, and rules to a storytelling AI.</p>
+        <CopyPanel
+          title="Setup prompt"
+          description="Cells and connections, characters, points, crates, and a short rules summary."
+          text={setupPrompt}
         />
       </section>
 

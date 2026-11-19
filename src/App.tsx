@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import GameScreen from "./components/GameScreen";
+import SettingsScreen from "./components/SettingsScreen";
 import SetupScreen from "./components/SetupScreen";
 import { createDefaultCampaign, emptyGameState, migrateCampaign } from "./data";
 import { revealOutcomes, runRound } from "./game";
@@ -43,7 +44,7 @@ export default function App() {
         ...character,
         areaId: character.startAreaId,
         status: "active",
-        power: 7,
+        power: campaign.settings.startingPower,
         lastOpponentId: undefined,
         deathCause: undefined,
         diedInRound: undefined,
@@ -64,6 +65,9 @@ export default function App() {
     setCampaign({ ...campaign, screen: "setup" });
   };
 
+  const openSettings = () => setCampaign({ ...campaign, screen: "settings" });
+  const backToSetup = () => setCampaign({ ...campaign, screen: "setup" });
+
   const resetPlaceholders = () => {
     if (!window.confirm("Replace the current local campaign with all placeholder content?")) return;
     setCampaign(createDefaultCampaign());
@@ -72,8 +76,10 @@ export default function App() {
   return (
     <>
       {storageError && <div className="storage-warning" role="alert">{storageError}</div>}
-      {campaign.screen === "setup" ? (
-        <SetupScreen campaign={campaign} onChange={setCampaign} onStart={startBattle} onReset={resetPlaceholders} />
+      {campaign.screen === "settings" ? (
+        <SettingsScreen campaign={campaign} onChange={setCampaign} onBack={backToSetup} />
+      ) : campaign.screen === "setup" ? (
+        <SetupScreen campaign={campaign} onChange={setCampaign} onStart={startBattle} onReset={resetPlaceholders} onOpenSettings={openSettings} />
       ) : (
         <GameScreen campaign={campaign} onAdvance={advance} onEditSetup={editSetup} />
       )}

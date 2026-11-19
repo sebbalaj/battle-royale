@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Campaign } from "../types";
+import { WEAPON_NAMES } from "../weapons";
 import MapBoard from "./MapBoard";
 import RoundTextDrawer from "./RoundTextDrawer";
 
@@ -74,6 +75,11 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
               areas={campaign.areas}
               characters={campaign.characters}
               contestedAreaIds={contestedAreaIds}
+              weapons={campaign.weapons}
+              crates={campaign.crates}
+              healingPoints={campaign.healingPoints}
+              dangerPoints={campaign.dangerPoints}
+              sniperShots={game.phase === "outcome-hidden" ? game.pendingSniperShots : []}
             />
           </div>
         </div>
@@ -92,6 +98,9 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
                       {character.invulnerable && <span className="invulnerable-mark" title="Invulnerable">◆</span>}
                     </div>
                     <span>{character.status === "dead" ? character.deathCause ?? `Died in round ${character.diedInRound}` : area?.name}</span>
+                    {character.status !== "dead" && character.weapon && (
+                      <span className="roster-weapon">{WEAPON_NAMES[character.weapon]}</span>
+                    )}
                   </div>
                   <div className="power-value"><strong>{character.power}</strong><span>power</span></div>
                 </article>
