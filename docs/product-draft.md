@@ -129,7 +129,7 @@ Weapons and crates can be placed on cells during Setup.
 - **Crates** have a find chance (default 50%) to open when a character arrives. If the crate weapon is better, the character takes it and the crate is marked opened.
 - **Drops on death**: when a fight kills the loser, the loser's weapon drops on the conflict cell. The killer claims it only if it is better than their current weapon, in which case the killer's replaced weapon also drops. Anything not claimed stays on the cell for a later ground pickup.
 
-Weapon pickups from the ground and from crates are rolled and applied at Advance. Drops from a kill resolve at Reveal, alongside the death that caused them.
+All weapon changes are rolled and locked at Advance but only applied at Reveal, like every other outcome. Ground and crate pickups, their replaced-weapon drops, and drops from a kill all resolve at Reveal. During the outcome-hidden phase, carried weapons and crates on the map stay exactly as they were at the start of the round.
 
 ## Sniper
 
@@ -185,7 +185,7 @@ Settings belong to the campaign and are not stored in layout save slots.
 
 ## Hidden map result and Reveal
 
-The movement advance calculates and saves complete results: fight outcomes, locked sniper targets, healing success, danger damage, and ground / crate weapon pickups. The conflict copy immediately names winners, damage, deaths, and escapes. The map still displays all conflict participants without showing those changes, but it does show sniper targeting indicators for the locked shots.
+The movement advance calculates and saves complete results: fight outcomes, locked sniper targets, healing success, danger damage, and ground / crate weapon pickups. The conflict copy immediately names winners, damage, deaths, and escapes. The map still displays all conflict participants without showing those changes, and carried weapons stay at their start-of-round state until Reveal. It does show sniper aim lines from each shooter to their locked target, with the shooter and target portraits both marked, for the duration of the hidden phase.
 
 Pressing **Reveal conflicts** applies the locked results in a fixed order:
 
@@ -255,7 +255,7 @@ The Setup screen offers a third copyable text that describes the world for an ex
 
 ## Map visuals
 
-Map portraits are enlarged for readability, and the power number is moved off the face so it no longer covers the portrait. Each portrait can also show a weapon icon for the carried weapon and a targeting indicator when the character is a locked sniper target during the hidden phase. The map renders markers for crates, healing points, and danger points on their cells.
+Map portraits are enlarged for readability, and the power number is moved off the face so it no longer covers the portrait. Each portrait can also show a weapon icon for the carried weapon. During the hidden phase, a sniper aim line is drawn from each shooter's cell to their target's cell, the shooter portrait is marked as taking aim, and the target portrait is marked as being in a sniper's sights. The map renders markers for crates, healing points, and danger points on their cells.
 
 ## Visible power
 

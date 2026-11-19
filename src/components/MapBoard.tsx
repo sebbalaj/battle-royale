@@ -43,6 +43,22 @@ export default function MapBoard({
   );
 
   const targetedCharacterIds = new Set(sniperShots.map((shot) => shot.targetId));
+  const shooterCharacterIds = new Set(sniperShots.map((shot) => shot.shooterId));
+
+  const areaOf = (characterId: string): Area | undefined => {
+    const character = characters.find((candidate) => candidate.id === characterId);
+    return character ? areas.find((area) => area.id === character.areaId) : undefined;
+  };
+
+  // Lines from each sniper shooter's cell to their locked target's cell, so it
+  // is clear who is aiming at whom during the hidden phase.
+  const aimLines = sniperShots
+    .map((shot) => {
+      const from = areaOf(shot.shooterId);
+      const to = areaOf(shot.targetId);
+      return from && to ? { key: `${shot.shooterId}-${shot.targetId}`, from, to } : undefined;
+    })
+    .filter((line): line is { key: string; from: Area; to: Area } => Boolean(line));
 
   const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
     if (mode !== "place" || !onPlace) return;
@@ -70,6 +86,26 @@ export default function MapBoard({
           />
         ))}
       </svg>
+      {aimLines.length > 0 && (
+        <svg className="aim-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <marker id="aim-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="#f0574a" />
+            </marker>
+          </defs>
+          {aimLines.map((line) => (
+            <line
+              key={line.key}
+              className="aim-line"
+              x1={line.from.x * 100}
+              y1={line.from.y * 100}
+              x2={line.to.x * 100}
+              y2={line.to.y * 100}
+              markerEnd="url(#aim-arrow)"
+            />
+          ))}
+        </svg>
+      )}
 
       {areas.map((area) => {
         const areaCharacters = characters.filter((character) => character.areaId === area.id);
@@ -138,16 +174,18 @@ export default function MapBoard({
               <div className="map-character-stack" aria-label={`Characters at ${area.name}`}>
                 {areaCharacters.map((character) => {
                   const isTargeted = targetedCharacterIds.has(character.id) && character.status === "active";
+                  const isShooter = shooterCharacterIds.has(character.id) && character.status === "active";
                   return (
                     <div
-                      className={`map-character${character.status === "dead" ? " is-defeated" : ""}${character.invulnerable ? " is-invulnerable" : ""}${isTargeted ? " is-targeted" : ""}`}
-                      title={`${character.name} — ${character.power} power${character.weapon ? ` — ${WEAPON_NAMES[character.weapon]}` : ""}${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}${isTargeted ? " — in a sniper's sights" : ""}`}
+                      className={`map-character${character.status === "dead" ? " is-defeated" : ""}${character.invulnerable ? " is-invulnerable" : ""}${isTargeted ? " is-targeted" : ""}${isShooter ? " is-shooter" : ""}`}
+                      title={`${character.name} — ${character.power} power${character.weapon ? ` — ${WEAPON_NAMES[character.weapon]}` : ""}${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}${isShooter ? " — taking aim" : ""}${isTargeted ? " — in a sniper's sights" : ""}`}
                       key={character.id}
                     >
                       <img src={character.portrait} alt="" />
                       {character.weapon && (
                         <span className="map-weapon-badge" title={WEAPON_NAMES[character.weapon]}>{WEAPON_GLYPHS[character.weapon]}</span>
                       )}
+                      {isShooter && <span className="map-shooter-badge" aria-hidden="true">🎯</span>}
                       {isTargeted && <span className="map-target-badge" aria-hidden="true">◎</span>}
                       <span className="map-power-badge">{character.power}</span>
                     </div>

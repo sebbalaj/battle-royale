@@ -340,9 +340,12 @@ type PickupResult = {
 };
 
 // Resolve ground weapons and crates for every surviving, non-conflicted
-// character after movement. These are deterministic once rolled and applied
-// immediately at Advance (they are not hidden-conflict outcomes). A character
-// in a conflict this round does not scavenge; they are busy fighting.
+// character after movement. The pickups are ROLLED (locked) at Advance but
+// NOT committed to the board: the returned characters/weapons/crates are a
+// PROJECTION used only to decide downstream rolls (e.g. who now holds a
+// sniper). The actual weapon/crate changes are applied at Reveal, so the map
+// shows weapons exactly as they were at the start of the round until Reveal.
+// A character in a conflict this round does not scavenge; they are fighting.
 const resolveGroundPickups = (
   campaign: Campaign,
   characters: Character[],
@@ -617,8 +620,10 @@ export const runRound = (campaign: Campaign): Campaign => {
   });
   const conflictAreaIds = new Set(conflicts.map((conflict) => conflict.areaId));
 
-  // Ground weapon + crate pickups apply immediately at Advance (not hidden
-  // outcomes). Characters in a conflict this round do not scavenge.
+  // Ground weapon + crate pickups are ROLLED and LOCKED here but applied at
+  // Reveal, like every other hidden outcome. `charactersWithWeapons` is a
+  // projection used only to decide downstream rolls (sniper holders) and to
+  // phrase the round text; it is NOT persisted to the board this phase.
   const pickupResult = resolveGroundPickups(campaign, movedCharacters, conflictAreaIds);
   const charactersWithWeapons = pickupResult.characters;
 
@@ -633,7 +638,12 @@ export const runRound = (campaign: Campaign): Campaign => {
   const dangerEvents = rollDangerEvents(campaign, charactersWithWeapons, conflictAreaIds);
   const healingPointsAfter = advanceHealCooldowns(campaign, healEvents);
 
-  const campaignAfterMovement: Campaign = {
+  // Text is phrased from the projection (so weapon names read correctly), but
+  // the board we persist this phase keeps the ORIGINAL weapons, crates and
+  // character weapons. Only movement, power change, cooldown ticks and the
+  // locked pending outcomes change at Advance. Weapons reset to their start-of
+  // round state and only move at Reveal.
+  const textCampaign: Campaign = {
     ...campaign,
     characters: charactersWithWeapons,
     weapons: pickupResult.weapons,
@@ -642,7 +652,7 @@ export const runRound = (campaign: Campaign): Campaign => {
   };
 
   const basicText = buildBasicText(
-    campaignAfterMovement,
+    textCampaign,
     nextRound,
     movements,
     conflicts,
@@ -651,7 +661,13 @@ export const runRound = (campaign: Campaign): Campaign => {
     healEvents,
     dangerEvents,
   );
-  const conflictText = buildConflictText(campaignAfterMovement, nextRound, conflicts, pickupResult.pickups);
+  const conflictText = buildConflictText(textCampaign, nextRound, conflicts, pickupResult.pickups);
+
+  const campaignAfterMovement: Campaign = {
+    ...campaign,
+    characters: movedCharacters,
+    healingPoints: healingPointsAfter,
+  };
 
   return {
     ...campaignAfterMovement,
@@ -689,10 +705,46 @@ export const runRound = (campaign: Campaign): Campaign => {
 
 export const revealOutcomes = (campaign: Campaign): Campaign => {
   let characters = campaign.characters.map((character) => ({ ...character }));
-  let droppedWeapons: MapWeapon[] = [];
+  let groundWeapons: MapWeapon[] = campaign.weapons.map((weapon) => ({ ...weapon }));
+  let crates: Crate[] = campaign.crates.map((crate) => ({ ...crate }));
 
   const settings = campaign.settings;
   const find = (id: string) => characters.find((character) => character.id === id);
+
+  // 0) Weapon pickups (crate / ground), rolled at Advance, applied now. This
+  //    assigns the new weapon to the character, drops any replaced weapon on
+  //    the cell, removes the taken ground weapon, and marks an opened crate.
+  //    Deferring this to Reveal keeps weapons at their start-of-round state
+  //    during the hidden phase.
+  for (const pickup of campaign.game.pendingPickups) {
+    const picker = find(pickup.characterId);
+    if (!picker || picker.status !== "active") continue;
+
+    if (pickup.source === "crate") {
+      const crateIndex = crates.findIndex(
+        (crate) => crate.areaId === pickup.areaId && !crate.opened && crate.weapon === pickup.weapon,
+      );
+      if (crateIndex >= 0) crates = crates.map((crate, index) => (index === crateIndex ? { ...crate, opened: true } : crate));
+    } else {
+      // ground / drop: remove one matching weapon lying on that cell.
+      const groundIndex = groundWeapons.findIndex(
+        (weapon) => weapon.areaId === pickup.areaId && weapon.weapon === pickup.weapon,
+      );
+      if (groundIndex >= 0) groundWeapons = groundWeapons.filter((_, index) => index !== groundIndex);
+    }
+
+    characters = characters.map((character) =>
+      character.id === picker.id ? { ...character, weapon: pickup.weapon } : character,
+    );
+    if (pickup.replaced) {
+      groundWeapons = [
+        ...groundWeapons,
+        { id: crypto.randomUUID(), areaId: pickup.areaId, weapon: pickup.replaced },
+      ];
+    }
+  }
+
+  let droppedWeapons: MapWeapon[] = [];
 
   // 1) Conflicts: apply fight outcomes, then weapon drops/pickups on kills.
   for (const outcome of campaign.game.pendingOutcomes) {
@@ -822,7 +874,8 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
   return {
     ...campaign,
     characters,
-    weapons: [...campaign.weapons, ...droppedWeapons],
+    weapons: [...groundWeapons, ...droppedWeapons],
+    crates,
     game: {
       ...campaign.game,
       phase: "revealed",

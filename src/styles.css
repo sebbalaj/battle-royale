@@ -106,6 +106,11 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .map-character .map-weapon-badge { position: absolute; right: -4px; top: -4px; display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid #0a0a0a; border-radius: 50%; background: #1d1b16; font-size: .7rem; line-height: 1; }
 .map-character .map-target-badge { position: absolute; left: -6px; top: -6px; z-index: 5; color: #f0574a; font-size: 1rem; line-height: 1; text-shadow: 0 0 4px rgba(240, 87, 74, .8); animation: target-pulse 1s ease-in-out infinite alternate; }
 .map-character.is-targeted { box-shadow: 0 0 0 3px rgba(240, 87, 74, .55), 0 3px 8px rgba(0, 0, 0, .5); border-color: #f0574a; }
+.map-character.is-shooter { box-shadow: 0 0 0 3px rgba(255, 196, 92, .6), 0 3px 8px rgba(0, 0, 0, .5); border-color: #ffc45c; }
+.map-character .map-shooter-badge { position: absolute; right: -6px; bottom: -6px; z-index: 5; font-size: .8rem; line-height: 1; text-shadow: 0 0 4px rgba(255, 196, 92, .9); }
+.aim-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+.aim-layer .aim-line { stroke: #f0574a; stroke-width: 1; stroke-dasharray: 2.4 1.6; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 2px #000); animation: aim-dash 0.7s linear infinite; }
+@keyframes aim-dash { to { stroke-dashoffset: -8; } }
 .map-character.is-defeated { filter: grayscale(1); opacity: .42; border-color: #aaa; }
 .map-character.is-invulnerable { border-color: #77d5d0; box-shadow: 0 0 0 2px rgba(119, 213, 208, .3), 0 3px 8px rgba(0, 0, 0, .5); }
 @keyframes target-pulse { to { transform: scale(1.25); opacity: .6; } }
