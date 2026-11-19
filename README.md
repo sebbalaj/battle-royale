@@ -18,10 +18,18 @@ Once GitHub Pages is enabled, open:
 - 50% chance to stay and 50% chance to move to a connected cell.
 - Power starts at 7 and changes by `-2`, `-1`, `0`, `+1`, or `+2` every movement round.
 - Power-weighted fight odds, winner damage, loser death or escape, and invulnerable characters.
+- Four weapon types (suppressed pistol, sniper, knife, shotgun). Combat weapons add a secret power bonus that shifts fight odds but never shows on the displayed number. A character always keeps the stronger weapon and ignores weaker finds.
+- Weapons can be assigned to characters or placed on the map. A killed character drops their weapon on the cell; the killer picks it up only if it is better, otherwise it stays on the ground. Characters auto-pick a better ground weapon when they arrive on a cell.
+- Supply crates placed on the map with a find chance to open and reveal a weapon when a character arrives.
+- Sniper shots: a sniper holder has a small chance each round to target a random character in a connected cell. The target is locked at Advance and resolved at Reveal, as either an instant kill or flat damage. Invulnerable targets survive at 1 power.
+- Named healing points with a heal amount, a success chance, and a cooldown. Named danger points that always deal random damage in a set range, can kill the vulnerable, and act as unkillable terrain.
+- A **Settings** menu to tweak every tunable value (movement, power, combat, weapons, sniper, crates, healing, danger).
+- Named layout save slots that store the whole setup (map, cells, characters, weapons, crates, healing and danger points) without touching settings or an in-progress battle.
+- Larger map portraits with the power number moved off the face, plus weapon icons, a sniper targeting indicator, and crate / healing / danger markers.
 - Conflict results hidden on the map until Reveal.
 - A sticky **Round text** control that opens basic and conflict text without page scrolling.
-- Conflict text with results and 8–12 randomized story entries.
-- IndexedDB auto-save for the campaign, uploaded images, and pending results.
+- Three copyable texts: a setup prompt describing the map and cast for an AI, the basic round text, and the conflict text with results and 8 to 12 randomized story entries.
+- IndexedDB auto-save for the campaign, uploaded images, pending results, and saved layout slots.
 - Installable PWA configuration for mobile and desktop browsers.
 
 ## Image uploads
