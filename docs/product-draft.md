@@ -24,9 +24,10 @@ Every character has:
 - A manually selected starting cell.
 - Power, starting at the configured starting power (default 7).
 - An optional **Invulnerable** setting.
-- An optional combat weapon and an optional ranged weapon (two separate slots).
+- An optional combat weapon and an optional ranged weapon (two separate slots). The Setup character card has a select for each slot.
 - A record of their most recent opponent.
 - Active or dead status.
+- An optional custom dead-body image. This is runtime-only state set from the fullscreen cell viewer after the character dies. It persists with the live campaign in IndexedDB but is excluded from reusable layout save slots.
 
 Invulnerable means the character cannot die. They can still lose a fight and escape. A negative movement change cannot reduce an invulnerable character below 1 power. Invulnerable characters also survive sniper shots and danger points, flooring at 1 power.
 
@@ -186,6 +187,8 @@ The Settings menu tunes every value the engine reads. Defaults:
 
 Settings belong to the campaign and are not stored in layout save slots.
 
+Settings and Setup share a reusable numeric field. It lets the user clear the input while editing and commits the parsed value, or a fallback when the field is left empty or invalid, when the field loses focus. This removes the earlier forced-leading-zero behavior that blocked clearing a numeric field.
+
 ## Hidden map result and Reveal
 
 The movement advance calculates and saves complete results: fight outcomes, locked sniper targets, healing success, danger damage, and ground / crate weapon pickups. The conflict copy immediately names winners, damage, deaths, and escapes. The map still displays all conflict participants without showing those changes, and carried weapons stay at their start-of-round state until Reveal. It does show sniper aim lines from each shooter to their locked target, with the shooter and target portraits both marked, for the duration of the hidden phase.
@@ -205,14 +208,26 @@ Each later step skips a character who is already dead, so no one is revived or h
 
 Because every outcome is pre-rolled at Advance and persisted, reloading during the hidden phase does not reroll any result.
 
-## Copyable text layout
+## Copyable text layout and action bar
 
 The game map has a sticky action bar containing:
 
 - **Advance first/next round** or **Reveal conflicts**.
 - **Round text**.
+- A compact **Copy both** button.
+- A compact **Conflict** button.
+
+The compact buttons sit beside the **Round text** button and are sized so they do not take extra vertical space in the dock.
 
 Selecting **Round text** opens a side drawer on desktop or a bottom drawer on mobile. The user does not need to scroll below the map.
+
+### Copy both
+
+**Copy both** copies the basic and conflict text together in a single tap without opening the drawer. It joins them as the basic text, a blank line, a separator line, another blank line, then the conflict text. When there is no conflict text this round, it copies the basic text alone. The button is disabled until movement produces basic text, and it shows a short "Copied" confirmation after a successful copy. The drawer still exists for reading each text or copying a single tab.
+
+### Generate conflict
+
+**Conflict** teleports two random living characters onto one shared random cell and then runs the normal advance flow, so the round ends in the outcome-hidden phase with no spoiler on the map. It only picks from living characters that are currently alone on their own cell, and it never picks a character already in a conflict. The button is disabled when fewer than two eligible living characters exist, when a round is already pending reveal, or when the battle is complete.
 
 The drawer has two tabs:
 
@@ -244,6 +259,19 @@ Includes:
 
 Weapon names appear in the round and conflict texts. The numeric secret bonus is never printed anywhere.
 
+## Fullscreen cell viewer and dead-body images
+
+On the game screen only, pressing and holding a map cell for about 400 ms opens a fullscreen viewer for the characters on that cell. Opening is decoupled from the hold, so the finger can lift once the viewer is open. The viewer shows one image at a time rather than a gallery. Characters are ordered dead first, then living. A dead character shows its custom dead-body image if one is set, otherwise its greyed portrait; a living character shows its normal portrait.
+
+Navigation between characters uses a horizontal swipe, the left and right arrow keys, or the on-screen chevrons. The viewer closes on a backdrop tap, the close button, or the Escape key.
+
+Dead-body images are managed from inside the viewer and only on a fallen character:
+
+- **Paste**: a swipe up or the paste button reads the first image on the clipboard through the asynchronous Clipboard API (`navigator.clipboard.read`) and stores it as the dead body. This action only appears when the current body has no custom image yet. On Safari and iOS, or on any clipboard failure, it falls back to a normal file picker that accepts PNG, JPEG, and WebP.
+- **Remove**: a swipe down or the remove button clears the custom image and reverts the body to the greyed portrait. This action only appears when the current body has a custom image.
+
+Vertical and horizontal gestures are resolved by their dominant axis so paste / remove never collide with previous / next. Dead-body images are stored as data URLs on the character and persist through the IndexedDB autosave; they are runtime state and are not written into saved layout slots.
+
 ## Setup prompt
 
 The Setup screen offers a third copyable text that describes the world for an external AI. It covers:
@@ -252,13 +280,15 @@ The Setup screen offers a third copyable text that describes the world for an ex
 - Every cell and the cells it connects to, by name.
 - Each named healing point with its heal amount, success chance, and cooldown.
 - Each named danger point with its damage range.
-- Each character with their starting cell, invulnerable status, and starting weapon name if any.
+- Each character with their starting cell, invulnerable status, and the names of any carried weapons across the combat and ranged slots.
 - Crate locations by cell name.
 - A short plain-language summary of the rules, including that weapons give a hidden combat edge.
 
 ## Map visuals
 
-Map portraits are enlarged for readability, and the power number is moved off the face so it no longer covers the portrait. Each portrait can also show a weapon icon for the carried weapon. During the hidden phase, a sniper aim line is drawn from each shooter's cell to their target's cell, the shooter portrait is marked as taking aim, and the target portrait is marked as being in a sniper's sights. The map renders markers for crates, healing points, and danger points on their cells.
+Map portraits are enlarged for readability, and the power number is moved off the face so it no longer covers the portrait. Each portrait can show up to two weapon glyphs at once, one for the combat slot and one for the ranged slot, so a character carrying both a combat weapon and a sniper shows both. During the hidden phase, a sniper aim line is drawn from each shooter's cell to their target's cell, the shooter portrait is marked as taking aim, and the target portrait is marked as being in a sniper's sights. The map renders markers for crates, healing points, and danger points on their cells.
+
+A living character and a dead character without a custom dead-body image both render as a circular portrait, with the dead one greyed. A dead character with a custom dead-body image instead renders that image in its natural aspect ratio inside a small letterboxed rectangle (object-fit: contain), neither greyed nor circular, so an uploaded body reads clearly on the minimap.
 
 ## Visible power
 
@@ -275,9 +305,11 @@ Invulnerable characters receive a distinct marker and portrait border.
 
 ## Local persistence and migration
 
-IndexedDB stores the current campaign, uploaded images, game phase, hidden outcomes, power values, death causes, round history, and named layout slots. Layout slots live in their own object store, separate from the single live campaign.
+IndexedDB stores the current campaign, uploaded images, game phase, hidden outcomes, power values, death causes, custom dead-body images, round history, and named layout slots. Layout slots live in their own object store, separate from the single live campaign.
 
-Campaigns are stored at version 3. Older saves are migrated automatically to version 3. Their map, cells, routes, portraits, names, and story entries are kept. Weapons, crates, healing points, and danger points are only carried over from existing version 3 saves; earlier saves start these empty. On migration from version 2, settings reset to defaults. The old battle is reset because its saved conflict records do not contain the newer power and event information.
+Campaigns are stored at version 4. Older saves are migrated automatically to version 4. Their map, cells, routes, portraits, names, and story entries are kept. Weapons, crates, healing points, and danger points are only carried over from existing version 3 and version 4 saves; earlier saves start these empty and reset settings and the battle to defaults.
+
+The migration also normalizes per-character state to the two-slot model: an old single sniper weapon moves to the ranged slot, any other old weapon moves to the combat slot, and a character may end up holding both. Every migrated danger point gets an avoid chance, defaulting to 0.25 when the save did not store one. Custom dead-body images are left unset after migration.
 
 ## Future options
 

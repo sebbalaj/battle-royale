@@ -25,11 +25,13 @@ Once GitHub Pages is enabled, open:
 - Named healing points with a heal amount, a success chance, and a cooldown. Named danger points with a per-point avoid chance (default 25%): occupants that avoid take no damage, otherwise they take random damage in a set range, which can kill the vulnerable. Danger points act as unkillable terrain.
 - A **Settings** menu to tweak every tunable value (movement, power, combat, weapons, sniper, crates, healing, danger).
 - Named layout save slots that store the whole setup (map, cells, characters, weapons, crates, healing and danger points) without touching settings or an in-progress battle.
-- Larger map portraits with the power number moved off the face, plus weapon icons, a sniper targeting indicator, and crate / healing / danger markers.
+- Larger map portraits with the power number moved off the face, dual weapon glyphs (one for the combat slot and one for the ranged slot), a sniper targeting indicator, and crate / healing / danger markers. A dead character with a custom dead-body image renders that image on the minimap as a small rectangle in its natural aspect ratio instead of the greyed circle.
 - Conflict results hidden on the map until Reveal.
-- A sticky **Round text** control that opens basic and conflict text without page scrolling.
+- A sticky action bar with the Advance / Reveal control, a **Round text** button that opens basic and conflict text without page scrolling, a compact **Copy both** button that copies the basic and conflict text together in one tap without opening the drawer, and a compact **Conflict** button that teleports two random living characters onto one shared cell and runs the normal hidden-then-reveal flow so the outcome stays hidden on the map.
+- A fullscreen cell viewer: press and hold a map cell to open one image at a time for the characters on that cell, fallen first then living. A fallen character shows its greyed portrait by default; you can paste a custom dead-body image from the clipboard (with a file-picker fallback on Safari / iOS) or remove it to revert. Navigate with swipe, arrow keys, or on-screen chevrons.
+- Numeric fields across Setup and Settings can be cleared while editing and commit the parsed value (or a fallback) on blur, so there is no forced leading zero.
 - Three copyable texts: a setup prompt describing the map and cast for an AI, the basic round text, and the conflict text with results and 8 to 12 randomized story entries.
-- IndexedDB auto-save for the campaign, uploaded images, pending results, and saved layout slots.
+- IndexedDB auto-save for the campaign, uploaded images, pending results, custom dead-body images, and saved layout slots.
 - Installable PWA configuration for mobile and desktop browsers.
 
 ## Image uploads
