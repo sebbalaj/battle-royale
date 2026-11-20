@@ -219,6 +219,35 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
     }
   };
 
+  // Paste a portrait from the clipboard. Falls back to a clear message if the
+  // browser cannot read clipboard images (e.g. Safari/iOS) so the user can use
+  // Upload portrait instead.
+  const pastePortrait = async (characterId: string) => {
+    try {
+      if (!navigator.clipboard || typeof navigator.clipboard.read !== "function") {
+        throw new Error("Clipboard paste is not supported here. Use Upload portrait instead.");
+      }
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((candidate) => candidate.startsWith("image/"));
+        if (!type) continue;
+        const blob = await item.getType(type);
+        const portrait = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("The clipboard image could not be read."));
+          reader.readAsDataURL(blob);
+        });
+        setImageError("");
+        updateCharacter(characterId, { portrait });
+        return;
+      }
+      setImageError("No image found on the clipboard.");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "The clipboard image could not be read. Use Upload portrait instead.");
+    }
+  };
+
   const removeCharacter = (characterId: string) => {
     const character = campaign.characters.find((candidate) => candidate.id === characterId);
     if (!character || !window.confirm(`Remove ${character.name}?`)) return;
@@ -531,6 +560,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
                 </div>
                 <div className="character-actions">
                   <label className="text-button">Upload portrait<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void uploadPortrait(character.id, event)} /></label>
+                  <button className="text-button" onClick={() => void pastePortrait(character.id)}>Paste</button>
                   <button className="text-button danger-text" onClick={() => removeCharacter(character.id)}>Remove</button>
                 </div>
               </div>
