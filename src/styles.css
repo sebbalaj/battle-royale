@@ -113,7 +113,7 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .aim-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
 .aim-layer .aim-line { stroke: #f0574a; stroke-width: 1; stroke-dasharray: 2.4 1.6; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 2px #000); animation: aim-dash 0.7s linear infinite; }
 @keyframes aim-dash { to { stroke-dashoffset: -8; } }
-.map-character.is-defeated { filter: grayscale(1); opacity: .42; border-color: #aaa; }
+.map-character.is-defeated { filter: grayscale(1); opacity: 1; border-color: #aaa; }
 /* Dead with a custom body image: natural-ratio, letterboxed rectangle. Not
    greyed, not circular. Overrides the .is-defeated greying and the round shape. */
 .map-character.has-body-image { z-index: 20; width: clamp(44px, 6vw, 68px); aspect-ratio: auto; height: clamp(44px, 6vw, 68px); filter: none; opacity: 1; border: 0; border-radius: 0; background: none; box-shadow: none; overflow: visible; }
@@ -191,7 +191,7 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .power-value { display: grid; min-width: 40px; justify-items: center; border-left: 1px solid var(--line); padding-left: 9px; }
 .power-value strong { color: var(--gold); font-family: "Newsreader", Georgia, serif; font-size: 1.35rem; line-height: 1; }
 .power-value span { margin-top: 3px; color: var(--muted); font-size: .54rem; letter-spacing: .06em; text-transform: uppercase; }
-.roster-item.is-defeated { filter: grayscale(1); opacity: .46; }
+.roster-item.is-defeated { filter: grayscale(1); opacity: 1; }
 
 .copy-section { margin-top: 52px; }
 .section-title-row { margin-bottom: 18px; }
