@@ -261,14 +261,14 @@ Weapon names appear in the round and conflict texts. The numeric secret bonus is
 
 ## Fullscreen cell viewer and dead-body images
 
-On the game screen only, pressing and holding a map cell for about 400 ms opens a fullscreen viewer for the characters on that cell. Opening is decoupled from the hold, so the finger can lift once the viewer is open. The viewer shows one image at a time rather than a gallery. Characters are ordered dead first, then living. A dead character shows its custom dead-body image if one is set, otherwise its greyed portrait; a living character shows its normal portrait.
+On the game screen only, a single tap on a map cell opens a fullscreen viewer for the characters on that cell. The viewer shows one image at a time rather than a gallery, with no visible controls or HUD over the image. Characters are ordered dead first, then living. A dead character shows its custom dead-body image if one is set, otherwise its greyed portrait; a living character shows its normal portrait.
 
-Navigation between characters uses a horizontal swipe, the left and right arrow keys, or the on-screen chevrons. The viewer closes on a backdrop tap, the close button, or the Escape key.
+Navigation between characters uses a horizontal swipe or the left and right arrow keys. Swiping back from the first image closes the viewer; a backdrop tap or the Escape key also closes it. There are no on-screen buttons.
 
 Dead-body images are managed from inside the viewer and only on a fallen character:
 
-- **Paste**: a swipe up or the paste button reads the first image on the clipboard through the asynchronous Clipboard API (`navigator.clipboard.read`) and stores it as the dead body. This action only appears when the current body has no custom image yet. On Safari and iOS, or on any clipboard failure, it falls back to a normal file picker that accepts PNG, JPEG, and WebP.
-- **Remove**: a swipe down or the remove button clears the custom image and reverts the body to the greyed portrait. This action only appears when the current body has a custom image.
+- **Paste**: a swipe up reads the first image on the clipboard through the asynchronous Clipboard API (`navigator.clipboard.read`) and stores it as the dead body. It only acts when the current body is a fallen character with no custom image yet. On Safari and iOS, or on any clipboard failure, it falls back to a normal file picker that accepts PNG, JPEG, and WebP.
+- **Remove**: a swipe down clears the custom image and reverts the body to the greyed portrait. It only acts when the current body has a custom image.
 
 Vertical and horizontal gestures are resolved by their dominant axis so paste / remove never collide with previous / next. Dead-body images are stored as data URLs on the character and persist through the IndexedDB autosave; they are runtime state and are not written into saved layout slots.
 

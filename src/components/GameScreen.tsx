@@ -83,7 +83,6 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
                 <span className={`phase-badge phase-badge--${game.phase}`}>
                   {game.phase === "outcome-hidden" ? "Outcome hidden on map" : game.phase === "revealed" ? "Results revealed" : "Ready"}
                 </span>
-                {game.phase === "outcome-hidden" && <p>Open Round text to read the result. The map remains unchanged until Reveal.</p>}
               </div>
             </div>
             <div className="game-action-dock">

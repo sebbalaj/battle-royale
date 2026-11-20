@@ -40,7 +40,6 @@ const readClipboardImage = async (): Promise<string | undefined> => {
 
 export default function CellViewer({ characters, areaName, onClose, onSetDeadBodyImage }: CellViewerProps) {
   const [index, setIndex] = useState(0);
-  const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gestureStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -55,24 +54,30 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
 
   const goTo = (next: number) => {
     if (count === 0) return;
-    setError("");
     setIndex(((next % count) + count) % count);
   };
-  const goPrev = () => goTo(index - 1);
-  const goNext = () => goTo(index + 1);
+  // Swiping back from the first image exits the viewer; otherwise step back.
+  const goPrev = () => {
+    if (index === 0) {
+      onClose();
+      return;
+    }
+    goTo(index - 1);
+  };
+  const goNext = () => {
+    if (index >= count - 1) return;
+    goTo(index + 1);
+  };
 
   // Paste acts only on a dead body with no custom image yet. Runs under the
   // user gesture (swipe-up / button) so the Clipboard read prompt is allowed.
   const handlePaste = async () => {
     if (!current || !isDead || hasCustomBody) return;
-    setError("");
     try {
       const image = await readClipboardImage();
       if (image) {
         onSetDeadBodyImage(current.id, image);
-        return;
       }
-      setError("No image found on the clipboard.");
     } catch {
       // Safari/iOS and unsupported browsers fall back to a file picker.
       fileInputRef.current?.click();
@@ -84,16 +89,14 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
     try {
       const image = await readImageFile(file);
       onSetDeadBodyImage(current.id, image);
-      setError("");
-    } catch (readError) {
-      setError(readError instanceof Error ? readError.message : "The image could not be read.");
+    } catch {
+      // Ignore unreadable files; the viewer has no HUD to surface an error.
     }
   };
 
   // Remove acts only on a dead body WITH a custom image; reverts to greyed.
   const handleRemove = () => {
     if (!current || !isDead || !hasCustomBody) return;
-    setError("");
     onSetDeadBodyImage(current.id, undefined);
   };
 
@@ -134,9 +137,9 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
 
   if (!current) return null;
 
-  const canPaste = isDead && !hasCustomBody;
-  const canRemove = isDead && hasCustomBody;
-
+  // No visible HUD: just the image. Navigation is swipe left/right, paste is
+  // swipe up, remove is swipe down, and swiping back from the first image (or
+  // a backdrop tap / Escape) closes the viewer.
   return (
     <div className="cell-viewer" role="dialog" aria-modal="true" aria-label={`Fallen and survivors at ${areaName}`}>
       <div className="cell-viewer-backdrop" onClick={onClose} />
@@ -147,30 +150,6 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
         onPointerCancel={() => (gestureStart.current = null)}
       >
         <img className={`cell-viewer-image${greyed ? " is-defeated" : ""}`} src={imageSrc} alt={current.name} draggable={false} />
-
-        <div className="cell-viewer-topbar">
-          <span className="cell-viewer-name">{current.name}{isDead ? " (fallen)" : ""}</span>
-          <button className="cell-viewer-close" onClick={onClose} aria-label="Close viewer">✕</button>
-        </div>
-
-        {count > 1 && (
-          <>
-            <button className="cell-viewer-chevron cell-viewer-chevron--prev" onClick={goPrev} aria-label="Previous">‹</button>
-            <button className="cell-viewer-chevron cell-viewer-chevron--next" onClick={goNext} aria-label="Next">›</button>
-          </>
-        )}
-
-        <div className="cell-viewer-footer">
-          {count > 1 && <span className="cell-viewer-counter">{index + 1} / {count}</span>}
-          {canPaste && (
-            <button className="cell-viewer-action" onClick={() => void handlePaste()}>Paste image ▲</button>
-          )}
-          {canRemove && (
-            <button className="cell-viewer-action" onClick={handleRemove}>Remove image ▼</button>
-          )}
-        </div>
-
-        {error && <p className="cell-viewer-error" role="alert">{error}</p>}
       </div>
 
       <input

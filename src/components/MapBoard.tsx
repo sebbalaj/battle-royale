@@ -1,12 +1,6 @@
-import { useRef } from "react";
-import type { MouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { MouseEvent } from "react";
 import type { Area, Character, Crate, DangerPoint, HealingPoint, MapWeapon, SniperShot } from "../types";
 import { WEAPON_GLYPHS, WEAPON_NAMES } from "../weapons";
-
-// Pixels of pointer travel that cancel a long-press, and the hold duration that
-// opens the cell viewer.
-const HOLD_MOVE_CANCEL_PX = 12;
-const HOLD_DURATION_MS = 400;
 
 type MapBoardProps = {
   mapImage: string;
@@ -23,7 +17,7 @@ type MapBoardProps = {
   sniperShots?: SniperShot[];
   onPlace?: (x: number, y: number) => void;
   onAreaClick?: (areaId: string) => void;
-  // Play-mode only: fired when a cell is pressed-and-held ~400ms.
+  // Play-mode only: fired when a cell is tapped, to open the cell viewer.
   onAreaHold?: (areaId: string) => void;
 };
 
@@ -52,41 +46,6 @@ export default function MapBoard({
   onAreaClick,
   onAreaHold,
 }: MapBoardProps) {
-  // Press-and-hold bookkeeping for the play-mode cell viewer. A fired hold sets
-  // suppressClick so the click that follows the long-press does not also run
-  // the normal area click.
-  const holdTimer = useRef<number | null>(null);
-  const holdStart = useRef<{ x: number; y: number } | null>(null);
-  const holdFired = useRef(false);
-  const suppressClick = useRef(false);
-
-  const clearHold = () => {
-    if (holdTimer.current !== null) {
-      window.clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-    holdStart.current = null;
-  };
-
-  const startHold = (areaId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (mode !== "play" || !onAreaHold) return;
-    holdFired.current = false;
-    holdStart.current = { x: event.clientX, y: event.clientY };
-    holdTimer.current = window.setTimeout(() => {
-      holdFired.current = true;
-      suppressClick.current = true;
-      clearHold();
-      onAreaHold(areaId);
-    }, HOLD_DURATION_MS);
-  };
-
-  const moveHold = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const start = holdStart.current;
-    if (!start) return;
-    if (Math.abs(event.clientX - start.x) > HOLD_MOVE_CANCEL_PX || Math.abs(event.clientY - start.y) > HOLD_MOVE_CANCEL_PX) {
-      clearHold();
-    }
-  };
   const connections = areas.flatMap((area) =>
     area.neighborIds
       .filter((neighborId) => area.id < neighborId)
@@ -209,17 +168,11 @@ export default function MapBoard({
               className={`area-circle${isSelected ? " is-selected" : ""}${isConnectStart ? " is-connect-start" : ""}${isContested ? " is-contested" : ""}`}
               onClick={(event) => {
                 event.stopPropagation();
-                if (suppressClick.current) {
-                  suppressClick.current = false;
-                  return;
-                }
-                onAreaClick?.(area.id);
+                // Play mode: a single tap opens the cell viewer. Editing modes
+                // use the normal area click.
+                if (mode === "play" && onAreaHold) onAreaHold(area.id);
+                else onAreaClick?.(area.id);
               }}
-              onPointerDown={(event) => startHold(area.id, event)}
-              onPointerMove={moveHold}
-              onPointerUp={clearHold}
-              onPointerLeave={clearHold}
-              onPointerCancel={clearHold}
               aria-label={`${area.name}${isContested ? ", conflict" : ""}`}
             >
               <span className="area-name">{area.name}</span>
