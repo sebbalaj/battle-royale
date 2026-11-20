@@ -48,6 +48,7 @@ export default function App() {
         lastOpponentId: undefined,
         deathCause: undefined,
         diedInRound: undefined,
+        deadBodyImage: undefined,
       })),
       game: emptyGameState(),
     });
