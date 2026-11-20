@@ -1,6 +1,12 @@
-import type { MouseEvent } from "react";
+import { useRef } from "react";
+import type { MouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Area, Character, Crate, DangerPoint, HealingPoint, MapWeapon, SniperShot } from "../types";
 import { WEAPON_GLYPHS, WEAPON_NAMES } from "../weapons";
+
+// Pixels of pointer travel that cancel a long-press, and the hold duration that
+// opens the cell viewer.
+const HOLD_MOVE_CANCEL_PX = 12;
+const HOLD_DURATION_MS = 400;
 
 type MapBoardProps = {
   mapImage: string;
@@ -17,6 +23,16 @@ type MapBoardProps = {
   sniperShots?: SniperShot[];
   onPlace?: (x: number, y: number) => void;
   onAreaClick?: (areaId: string) => void;
+  // Play-mode only: fired when a cell is pressed-and-held ~400ms.
+  onAreaHold?: (areaId: string) => void;
+};
+
+// Build the combat + ranged glyph list for a character's held weapons.
+const weaponBadges = (character: Character): { slot: string; glyph: string; name: string }[] => {
+  const badges: { slot: string; glyph: string; name: string }[] = [];
+  if (character.weapon) badges.push({ slot: "combat", glyph: WEAPON_GLYPHS[character.weapon], name: WEAPON_NAMES[character.weapon] });
+  if (character.rangedWeapon) badges.push({ slot: "ranged", glyph: WEAPON_GLYPHS[character.rangedWeapon], name: WEAPON_NAMES[character.rangedWeapon] });
+  return badges;
 };
 
 export default function MapBoard({
@@ -34,7 +50,43 @@ export default function MapBoard({
   sniperShots = [],
   onPlace,
   onAreaClick,
+  onAreaHold,
 }: MapBoardProps) {
+  // Press-and-hold bookkeeping for the play-mode cell viewer. A fired hold sets
+  // suppressClick so the click that follows the long-press does not also run
+  // the normal area click.
+  const holdTimer = useRef<number | null>(null);
+  const holdStart = useRef<{ x: number; y: number } | null>(null);
+  const holdFired = useRef(false);
+  const suppressClick = useRef(false);
+
+  const clearHold = () => {
+    if (holdTimer.current !== null) {
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    holdStart.current = null;
+  };
+
+  const startHold = (areaId: string, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (mode !== "play" || !onAreaHold) return;
+    holdFired.current = false;
+    holdStart.current = { x: event.clientX, y: event.clientY };
+    holdTimer.current = window.setTimeout(() => {
+      holdFired.current = true;
+      suppressClick.current = true;
+      clearHold();
+      onAreaHold(areaId);
+    }, HOLD_DURATION_MS);
+  };
+
+  const moveHold = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const start = holdStart.current;
+    if (!start) return;
+    if (Math.abs(event.clientX - start.x) > HOLD_MOVE_CANCEL_PX || Math.abs(event.clientY - start.y) > HOLD_MOVE_CANCEL_PX) {
+      clearHold();
+    }
+  };
   const connections = areas.flatMap((area) =>
     area.neighborIds
       .filter((neighborId) => area.id < neighborId)
@@ -157,8 +209,17 @@ export default function MapBoard({
               className={`area-circle${isSelected ? " is-selected" : ""}${isConnectStart ? " is-connect-start" : ""}${isContested ? " is-contested" : ""}`}
               onClick={(event) => {
                 event.stopPropagation();
+                if (suppressClick.current) {
+                  suppressClick.current = false;
+                  return;
+                }
                 onAreaClick?.(area.id);
               }}
+              onPointerDown={(event) => startHold(area.id, event)}
+              onPointerMove={moveHold}
+              onPointerUp={clearHold}
+              onPointerLeave={clearHold}
+              onPointerCancel={clearHold}
               aria-label={`${area.name}${isContested ? ", conflict" : ""}`}
             >
               <span className="area-name">{area.name}</span>
@@ -175,15 +236,25 @@ export default function MapBoard({
                 {areaCharacters.map((character) => {
                   const isTargeted = targetedCharacterIds.has(character.id) && character.status === "active";
                   const isShooter = shooterCharacterIds.has(character.id) && character.status === "active";
+                  const badges = weaponBadges(character);
+                  // Dead with a custom image renders as a natural-ratio rectangle
+                  // (letterboxed); dead without stays the greyed circle; living
+                  // stay circular.
+                  const hasBodyImage = character.status === "dead" && Boolean(character.deadBodyImage);
+                  const weaponTitle = badges.length > 0 ? ` — ${badges.map((badge) => badge.name).join(", ")}` : "";
                   return (
                     <div
-                      className={`map-character${character.status === "dead" ? " is-defeated" : ""}${character.invulnerable ? " is-invulnerable" : ""}${isTargeted ? " is-targeted" : ""}${isShooter ? " is-shooter" : ""}`}
-                      title={`${character.name} — ${character.power} power${character.weapon ? ` — ${WEAPON_NAMES[character.weapon]}` : ""}${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}${isShooter ? " — taking aim" : ""}${isTargeted ? " — in a sniper's sights" : ""}`}
+                      className={`map-character${character.status === "dead" ? " is-defeated" : ""}${hasBodyImage ? " has-body-image" : ""}${character.invulnerable ? " is-invulnerable" : ""}${isTargeted ? " is-targeted" : ""}${isShooter ? " is-shooter" : ""}`}
+                      title={`${character.name} — ${character.power} power${weaponTitle}${character.invulnerable ? " — invulnerable" : ""}${character.status === "dead" ? " — dead" : ""}${isShooter ? " — taking aim" : ""}${isTargeted ? " — in a sniper's sights" : ""}`}
                       key={character.id}
                     >
-                      <img src={character.portrait} alt="" />
-                      {character.weapon && (
-                        <span className="map-weapon-badge" title={WEAPON_NAMES[character.weapon]}>{WEAPON_GLYPHS[character.weapon]}</span>
+                      <img src={hasBodyImage ? character.deadBodyImage : character.portrait} alt="" />
+                      {badges.length > 0 && (
+                        <span className="map-weapon-badge-stack" aria-hidden="true">
+                          {badges.map((badge) => (
+                            <span className={`map-weapon-badge map-weapon-badge--${badge.slot}`} title={badge.name} key={badge.slot}>{badge.glyph}</span>
+                          ))}
+                        </span>
                       )}
                       {isShooter && <span className="map-shooter-badge" aria-hidden="true">🎯</span>}
                       {isTargeted && <span className="map-target-badge" aria-hidden="true">◎</span>}

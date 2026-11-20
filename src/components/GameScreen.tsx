@@ -1,6 +1,9 @@
 import { useState } from "react";
-import type { Campaign } from "../types";
+import { copyText } from "../clipboard";
+import { joinRoundText } from "../game";
+import type { Campaign, Character } from "../types";
 import { WEAPON_NAMES } from "../weapons";
+import CellViewer from "./CellViewer";
 import MapBoard from "./MapBoard";
 import RoundTextDrawer from "./RoundTextDrawer";
 
@@ -8,10 +11,14 @@ type GameScreenProps = {
   campaign: Campaign;
   onAdvance: () => void;
   onEditSetup: () => void;
+  onGenerateConflict: () => void;
+  onSetDeadBodyImage: (characterId: string, image: string | undefined) => void;
 };
 
-export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScreenProps) {
+export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerateConflict, onSetDeadBodyImage }: GameScreenProps) {
   const [textDrawerOpen, setTextDrawerOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [viewerAreaId, setViewerAreaId] = useState<string | null>(null);
   const { game } = campaign;
   const activeCharacters = campaign.characters.filter((character) => character.status === "active");
   const deadCharacters = campaign.characters.filter((character) => character.status === "dead");
@@ -25,6 +32,28 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
     : game.round === 0
       ? "Advance first round"
       : "Advance next round";
+
+  // Generate-conflict needs at least two living characters sitting alone on
+  // their own cells; a pending reveal or a finished battle disables it.
+  const livingByArea = new Map<string, number>();
+  for (const character of activeCharacters) livingByArea.set(character.areaId, (livingByArea.get(character.areaId) ?? 0) + 1);
+  const eligibleForConflict = activeCharacters.filter((character) => livingByArea.get(character.areaId) === 1).length;
+  const canGenerateConflict = game.phase !== "outcome-hidden" && !battleComplete && eligibleForConflict >= 2;
+
+  const handleCopyBoth = async () => {
+    await copyText(joinRoundText(game.currentBasicText, game.currentConflictText));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  };
+
+  // Characters on the held cell, ordered DEAD FIRST then living, for the viewer.
+  const viewerCharacters: Character[] = viewerAreaId
+    ? [
+        ...deadCharacters.filter((character) => character.areaId === viewerAreaId),
+        ...activeCharacters.filter((character) => character.areaId === viewerAreaId),
+      ]
+    : [];
+  const viewerArea = viewerAreaId ? campaign.areas.find((area) => area.id === viewerAreaId) : undefined;
 
   return (
     <main className="app-shell game-screen">
@@ -61,14 +90,36 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
               <button className="primary-button advance-button" disabled={battleComplete} onClick={onAdvance}>
                 {battleComplete ? "Battle complete" : advanceLabel}
               </button>
-              <button
-                className="round-text-button"
-                disabled={!game.currentBasicText}
-                onClick={() => setTextDrawerOpen(true)}
-              >
-                <span>Round text</span>
-                <small>{game.currentConflictText ? "Basic + conflict" : game.currentBasicText ? "Basic" : "Available after movement"}</small>
-              </button>
+              <div className="dock-actions">
+                <button
+                  className="round-text-button"
+                  disabled={!game.currentBasicText}
+                  onClick={() => setTextDrawerOpen(true)}
+                >
+                  <span>Round text</span>
+                  <small>{game.currentConflictText ? "Basic + conflict" : game.currentBasicText ? "Basic" : "Available after movement"}</small>
+                </button>
+                <div className="dock-mini-row">
+                  <button
+                    className="dock-mini-button"
+                    disabled={!game.currentBasicText}
+                    onClick={() => void handleCopyBoth()}
+                    title="Copy basic + conflict text"
+                  >
+                    <span aria-hidden="true">📋</span>
+                    <small>{copied ? "Copied" : "Copy both"}</small>
+                  </button>
+                  <button
+                    className="dock-mini-button"
+                    disabled={!canGenerateConflict}
+                    onClick={onGenerateConflict}
+                    title="Teleport two characters to a shared cell"
+                  >
+                    <span aria-hidden="true">⚔️</span>
+                    <small>Conflict</small>
+                  </button>
+                </div>
+              </div>
             </div>
             <MapBoard
               mapImage={campaign.mapImage}
@@ -80,6 +131,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
               healingPoints={campaign.healingPoints}
               dangerPoints={campaign.dangerPoints}
               sniperShots={game.phase === "outcome-hidden" ? game.pendingSniperShots : []}
+              onAreaHold={(areaId) => setViewerAreaId(areaId)}
             />
           </div>
         </div>
@@ -98,8 +150,13 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
                       {character.invulnerable && <span className="invulnerable-mark" title="Invulnerable">◆</span>}
                     </div>
                     <span>{character.status === "dead" ? character.deathCause ?? `Died in round ${character.diedInRound}` : area?.name}</span>
-                    {character.status !== "dead" && character.weapon && (
-                      <span className="roster-weapon">{WEAPON_NAMES[character.weapon]}</span>
+                    {character.status !== "dead" && (character.weapon || character.rangedWeapon) && (
+                      <span className="roster-weapon">
+                        {[character.weapon, character.rangedWeapon]
+                          .filter((weapon): weapon is NonNullable<typeof weapon> => Boolean(weapon))
+                          .map((weapon) => WEAPON_NAMES[weapon])
+                          .join(" · ")}
+                      </span>
                     )}
                   </div>
                   <div className="power-value"><strong>{character.power}</strong><span>power</span></div>
@@ -130,6 +187,15 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup }: GameScr
           basicText={game.currentBasicText}
           conflictText={game.currentConflictText}
           onClose={() => setTextDrawerOpen(false)}
+        />
+      )}
+
+      {viewerAreaId && viewerCharacters.length > 0 && (
+        <CellViewer
+          characters={viewerCharacters}
+          areaName={viewerArea?.name ?? ""}
+          onClose={() => setViewerAreaId(null)}
+          onSetDeadBodyImage={onSetDeadBodyImage}
         />
       )}
     </main>

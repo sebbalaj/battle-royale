@@ -3,7 +3,7 @@ import GameScreen from "./components/GameScreen";
 import SettingsScreen from "./components/SettingsScreen";
 import SetupScreen from "./components/SetupScreen";
 import { createDefaultCampaign, emptyGameState, migrateCampaign } from "./data";
-import { revealOutcomes, runRound } from "./game";
+import { revealOutcomes, runGeneratedConflict, runRound } from "./game";
 import { loadCampaign, saveCampaign } from "./storage";
 import type { Campaign } from "./types";
 
@@ -60,6 +60,28 @@ export default function App() {
     });
   };
 
+  const generateConflict = () => {
+    setCampaign((current) => {
+      if (!current) return current;
+      if (current.game.phase === "outcome-hidden") return current;
+      return runGeneratedConflict(current);
+    });
+  };
+
+  // Set or clear a fallen character's custom dead-body image. Flows through
+  // setCampaign so the debounced IndexedDB autosave persists the change.
+  const setDeadBodyImage = (characterId: string, image: string | undefined) => {
+    setCampaign((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        characters: current.characters.map((character) =>
+          character.id === characterId ? { ...character, deadBodyImage: image } : character,
+        ),
+      };
+    });
+  };
+
   const editSetup = () => {
     if (campaign.game.round > 0 && !window.confirm("Return to setup? Starting again will reset the current battle.")) return;
     setCampaign({ ...campaign, screen: "setup" });
@@ -81,7 +103,13 @@ export default function App() {
       ) : campaign.screen === "setup" ? (
         <SetupScreen campaign={campaign} onChange={setCampaign} onStart={startBattle} onReset={resetPlaceholders} onOpenSettings={openSettings} />
       ) : (
-        <GameScreen campaign={campaign} onAdvance={advance} onEditSetup={editSetup} />
+        <GameScreen
+          campaign={campaign}
+          onAdvance={advance}
+          onEditSetup={editSetup}
+          onGenerateConflict={generateConflict}
+          onSetDeadBodyImage={setDeadBodyImage}
+        />
       )}
     </>
   );
