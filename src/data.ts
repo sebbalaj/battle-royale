@@ -10,6 +10,8 @@ import type {
   WeaponType,
 } from "./types";
 
+import { weaponSlot } from "./weapons";
+
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`;
 
 export const defaultSettings = (): Settings => ({
@@ -38,6 +40,7 @@ export const defaultSettings = (): Settings => ({
   winnerDamageCapPct: 0.5,
   escapePowerMin: 1,
   escapePowerMax: 2,
+  dangerAvoidChance: 0.25,
 });
 
 export const emptyGameState = (): GameState => ({
@@ -70,7 +73,7 @@ const defaultCharacter = (
 });
 
 export const createDefaultCampaign = (): Campaign => ({
-  version: 3,
+  version: 4,
   name: "The Shattered Reach",
   mapImage: asset("placeholder-map.svg"),
   areas: [
@@ -100,9 +103,11 @@ export const createDefaultCampaign = (): Campaign => ({
 });
 
 type StoredCharacter = Partial<Omit<Character, "status">> & { status?: string };
-type StoredCampaign = Partial<Omit<Campaign, "characters" | "version">> & {
+type StoredDangerPoint = Partial<DangerPoint>;
+type StoredCampaign = Partial<Omit<Campaign, "characters" | "version" | "dangerPoints">> & {
   version?: number;
   characters?: StoredCharacter[];
+  dangerPoints?: StoredDangerPoint[];
 };
 
 const WEAPON_TYPES: WeaponType[] = ["suppressed-pistol", "sniper", "knife", "shotgun"];
@@ -115,37 +120,65 @@ export const migrateCampaign = (saved: unknown): Campaign | undefined => {
   const stored = saved as StoredCampaign;
   if (!stored.name || !stored.mapImage || !stored.areas || !stored.characters || !stored.phraseSource) return undefined;
 
-  const isV3 = stored.version === 3;
+  // v3 and v4 share the same board shape (areas/weapons/crates/points/game), so
+  // placements and in-progress battles are preserved for both. Older saves are
+  // reset to an empty board, matching the previous v2->v3 philosophy.
+  const preservesBoard = stored.version === 3 || stored.version === 4;
 
-  const characters: Character[] = stored.characters.map((character, index) => ({
-    id: character.id ?? crypto.randomUUID(),
-    name: character.name ?? `Character ${index + 1}`,
-    portrait: character.portrait ?? asset(`portrait-${(index % 4) + 1}.svg`),
-    startAreaId: character.startAreaId ?? stored.areas?.[0]?.id ?? "",
-    areaId: character.areaId ?? character.startAreaId ?? stored.areas?.[0]?.id ?? "",
-    status: character.status === "defeated" || character.status === "dead" ? "dead" : "active",
-    power: Number.isFinite(character.power) ? Number(character.power) : 7,
-    invulnerable: Boolean(character.invulnerable),
-    weapon: asWeaponType(character.weapon),
-    lastOpponentId: character.lastOpponentId,
-    deathCause: character.deathCause,
-    diedInRound: character.diedInRound,
-  }));
+  const characters: Character[] = stored.characters.map((character, index) => {
+    // Route the old single weapon (or any v4-shaped fields on re-migration) into
+    // the combat and ranged slots. A sniper lives in the ranged slot; everything
+    // else lives in the combat slot. Idempotent for already-v4 objects.
+    const combatSource = asWeaponType(character.weapon);
+    const rangedSource = asWeaponType(character.rangedWeapon);
+    const combatWeapon = combatSource && weaponSlot(combatSource) === "ranged" ? undefined : combatSource;
+    const rangedFromCombat = combatSource && weaponSlot(combatSource) === "ranged" ? combatSource : undefined;
+    const rangedWeapon = rangedSource ?? rangedFromCombat;
+
+    return {
+      id: character.id ?? crypto.randomUUID(),
+      name: character.name ?? `Character ${index + 1}`,
+      portrait: character.portrait ?? asset(`portrait-${(index % 4) + 1}.svg`),
+      startAreaId: character.startAreaId ?? stored.areas?.[0]?.id ?? "",
+      areaId: character.areaId ?? character.startAreaId ?? stored.areas?.[0]?.id ?? "",
+      status: character.status === "defeated" || character.status === "dead" ? "dead" : "active",
+      power: Number.isFinite(character.power) ? Number(character.power) : 7,
+      invulnerable: Boolean(character.invulnerable),
+      weapon: combatWeapon,
+      rangedWeapon,
+      lastOpponentId: character.lastOpponentId,
+      deathCause: character.deathCause,
+      diedInRound: character.diedInRound,
+      deadBodyImage: typeof character.deadBodyImage === "string" ? character.deadBodyImage : undefined,
+    };
+  });
+
+  const dangerPoints: DangerPoint[] =
+    preservesBoard && Array.isArray(stored.dangerPoints)
+      ? stored.dangerPoints.map((point) => ({
+          id: point.id ?? crypto.randomUUID(),
+          areaId: point.areaId ?? stored.areas?.[0]?.id ?? "",
+          name: point.name ?? "Danger Point",
+          minDamage: Number.isFinite(point.minDamage) ? Number(point.minDamage) : 1,
+          maxDamage: Number.isFinite(point.maxDamage) ? Number(point.maxDamage) : 4,
+          avoidChance: Number.isFinite(point.avoidChance) ? Number(point.avoidChance) : 0.25,
+        }))
+      : [];
 
   return {
-    version: 3,
+    version: 4,
     name: stored.name,
     mapImage: stored.mapImage,
     areas: stored.areas,
     characters,
     phraseSource: stored.phraseSource,
     stayChance: stored.stayChance ?? 0.5,
-    weapons: isV3 && Array.isArray(stored.weapons) ? (stored.weapons as MapWeapon[]) : [],
-    crates: isV3 && Array.isArray(stored.crates) ? (stored.crates as Crate[]) : [],
-    healingPoints: isV3 && Array.isArray(stored.healingPoints) ? (stored.healingPoints as HealingPoint[]) : [],
-    dangerPoints: isV3 && Array.isArray(stored.dangerPoints) ? (stored.dangerPoints as DangerPoint[]) : [],
-    settings: isV3 && stored.settings ? { ...defaultSettings(), ...stored.settings } : defaultSettings(),
-    screen: isV3 ? stored.screen ?? "setup" : "setup",
-    game: isV3 && stored.game ? { ...emptyGameState(), ...stored.game } : emptyGameState(),
+    weapons: preservesBoard && Array.isArray(stored.weapons) ? (stored.weapons as MapWeapon[]) : [],
+    crates: preservesBoard && Array.isArray(stored.crates) ? (stored.crates as Crate[]) : [],
+    healingPoints: preservesBoard && Array.isArray(stored.healingPoints) ? (stored.healingPoints as HealingPoint[]) : [],
+    dangerPoints,
+    settings: preservesBoard && stored.settings ? { ...defaultSettings(), ...stored.settings } : defaultSettings(),
+    screen: preservesBoard ? stored.screen ?? "setup" : "setup",
+    game: preservesBoard && stored.game ? { ...emptyGameState(), ...stored.game } : emptyGameState(),
   };
 };

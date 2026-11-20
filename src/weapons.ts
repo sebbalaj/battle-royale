@@ -17,3 +17,16 @@ export const WEAPON_GLYPHS: Record<WeaponType, string> = {
 };
 
 export const weaponName = (weapon?: WeaponType): string => (weapon ? WEAPON_NAMES[weapon] : "None");
+
+export type WeaponSlot = "combat" | "ranged";
+
+// Which inventory slot a weapon occupies. Only the sniper is ranged today, but
+// the model is kept general so more ranged weapons can be added later.
+export const WEAPON_SLOTS: Record<WeaponType, WeaponSlot> = {
+  "suppressed-pistol": "combat",
+  sniper: "ranged",
+  knife: "combat",
+  shotgun: "combat",
+};
+
+export const weaponSlot = (weapon: WeaponType): WeaponSlot => WEAPON_SLOTS[weapon];

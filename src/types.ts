@@ -23,10 +23,17 @@ export type Character = {
   status: CharacterStatus;
   power: number;
   invulnerable: boolean;
+  // Weapon slots. `weapon` is the COMBAT slot (kept as-is for minimal churn and
+  // clean migration); `rangedWeapon` is the separate RANGED slot (snipers). A
+  // character may hold both at once. Combat bonus reads ONLY the combat slot.
   weapon?: WeaponType;
+  rangedWeapon?: WeaponType;
   lastOpponentId?: string;
   deathCause?: string;
   diedInRound?: number;
+  // Runtime-only image (data URL) shown full-screen for a fallen character.
+  // Excluded from reusable layout saves (see LayoutData).
+  deadBodyImage?: string;
 };
 
 export type MapWeapon = {
@@ -58,6 +65,8 @@ export type DangerPoint = {
   name: string;
   minDamage: number;
   maxDamage: number;
+  // Per-point chance (0..1) an occupant avoids all damage this round.
+  avoidChance: number;
 };
 
 export type Settings = {
@@ -81,6 +90,8 @@ export type Settings = {
   winnerDamageCapPct: number;
   escapePowerMin: number;
   escapePowerMax: number;
+  // Default chance (0..1) a character avoids all damage at a danger point.
+  dangerAvoidChance: number;
 };
 
 export type Movement = {
@@ -159,6 +170,9 @@ export type DangerEvent = {
   powerBefore: number;
   powerAfter: number;
   died: boolean;
+  // Rolled and locked at Advance: when true the occupant dodged the danger and
+  // no damage is applied at Reveal (powerBefore === powerAfter, died false).
+  avoided: boolean;
 };
 
 export type RoundRecord = {
@@ -191,6 +205,8 @@ export type LayoutData = {
   name: string;
   mapImage: string;
   areas: Area[];
+  // Stores full Character objects. Dead-body images are runtime state and must
+  // be stripped from characters before saving a reusable layout.
   characters: Character[];
   phraseSource: string;
   weapons: MapWeapon[];
@@ -207,7 +223,7 @@ export type LayoutSlot = {
 };
 
 export type Campaign = {
-  version: 3;
+  version: 4;
   name: string;
   mapImage: string;
   areas: Area[];

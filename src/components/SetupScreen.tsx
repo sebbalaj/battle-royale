@@ -240,6 +240,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
     name: `Danger Point ${nextPointNumber(campaign.dangerPoints, "Danger Point")}`,
     minDamage: settings.dangerMinDamage,
     maxDamage: settings.dangerMaxDamage,
+    avoidChance: settings.dangerAvoidChance,
   });
 
   const placeItem = (areaId: string) => {
@@ -312,6 +313,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
       name: `Danger Point ${index + 1}`,
       minDamage: settings.dangerMinDamage,
       maxDamage: settings.dangerMaxDamage,
+      avoidChance: settings.dangerAvoidChance,
     }));
     onChange({ ...campaign, weapons, crates, healingPoints, dangerPoints });
   };
@@ -331,7 +333,8 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
         name: campaign.name,
         mapImage: campaign.mapImage,
         areas: campaign.areas,
-        characters: campaign.characters,
+        // Dead-body images are runtime state, not part of a reusable layout.
+        characters: campaign.characters.map(({ deadBodyImage: _deadBodyImage, ...rest }) => rest),
         phraseSource: campaign.phraseSource,
         weapons: campaign.weapons,
         crates: campaign.crates,

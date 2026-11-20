@@ -24,7 +24,7 @@ Every character has:
 - A manually selected starting cell.
 - Power, starting at the configured starting power (default 7).
 - An optional **Invulnerable** setting.
-- An optional carried weapon.
+- An optional combat weapon and an optional ranged weapon (two separate slots).
 - A record of their most recent opponent.
 - Active or dead status.
 
@@ -119,21 +119,23 @@ Default secret bonuses, strongest to weakest:
 - Knife: +1
 - Sniper: 0 (no close-combat edge)
 
-A character carries one weapon at a time and always keeps the stronger weapon by bonus. A weaker find is ignored. Because the sniper has a 0 bonus, it is only taken when the character carries no weapon or another 0-bonus weapon.
+A character carries up to two weapons at once, one per slot: a **combat** slot and a separate **ranged** slot. Only the combat slot contributes the secret combat bonus; the ranged slot (a sniper) gives no close-combat edge and only enables sniper fire. Within each slot a character always keeps the stronger weapon by bonus and ignores a weaker find. Because the sniper has a 0 bonus, the ranged slot effectively takes a sniper only when that slot is empty.
+
+Each weapon type is fixed to a slot: the sniper is a ranged weapon; the shotgun, suppressed pistol, and knife are combat weapons. The model allows adding more ranged weapons later.
 
 ### Weapons on the map
 
 Weapons and crates can be placed on cells during Setup.
 
-- **Ground weapons** are picked up automatically when a character arrives on the cell, but only if the weapon is better than what they already carry. A replaced weapon drops back onto the cell. Characters standing in a conflict cell do not scavenge that round.
-- **Crates** have a find chance (default 50%) to open when a character arrives. If the crate weapon is better, the character takes it and the crate is marked opened.
-- **Drops on death**: when a fight kills the loser, the loser's weapon drops on the conflict cell. The killer claims it only if it is better than their current weapon, in which case the killer's replaced weapon also drops. Anything not claimed stays on the cell for a later ground pickup.
+- **Ground weapons** are picked up automatically when a character arrives on the cell, routed to their matching slot (combat or ranged), but only if the weapon is better than what the character already holds in that slot. A replaced weapon drops back onto the cell. Characters standing in a conflict cell do not scavenge that round.
+- **Crates** have a find chance (default 50%) to open when a character arrives. If the crate weapon is better for its slot, the character takes it and the crate is marked opened.
+- **Drops on death**: when a fight kills the loser, **both** of the loser's weapon slots drop on the conflict cell and both slots are cleared on the dead character. The killer claims each dropped weapon only if it is better for the killer's matching slot, in which case the killer's replaced weapon from that slot also drops. Anything not claimed stays on the cell for a later ground pickup.
 
 All weapon changes are rolled and locked at Advance but only applied at Reveal, like every other outcome. Ground and crate pickups, their replaced-weapon drops, and drops from a kill all resolve at Reveal. During the outcome-hidden phase, carried weapons and crates on the map stay exactly as they were at the start of the round.
 
 ## Sniper
 
-A sniper holder has a small chance (default 10%) each round to fire at a random active character in a connected (adjacent) cell. The target is chosen from the shooter's post-movement neighbours; if there is no valid target, no shot happens.
+A character holding a sniper in the **ranged** slot has a small chance (default 10%) each round to fire at a random active character in a connected (adjacent) cell. The target is chosen from the shooter's post-movement neighbours; if there is no valid target, no shot happens.
 
 The chance is treated as the chance a shot both happens and connects. When a shot connects:
 
@@ -149,7 +151,7 @@ A healing point is named and sits on a cell. Each round, if the point is off coo
 
 ## Danger points
 
-A danger point is named and sits on a cell. It is unkillable terrain. Every round, every active occupant always takes random damage in the point's range (default 1 to 4). A vulnerable occupant that reaches 0 power dies, with the death cause naming the point. An invulnerable occupant floors at 1 power and cannot die. The damage is rolled at Advance and applied at Reveal.
+A danger point is named and sits on a cell. It is unkillable terrain. Every round, each active occupant first rolls against the point's **avoid chance** (default 25%). On a successful avoid, the occupant takes no damage that round and the round text reports that they avoided the danger. Otherwise the occupant takes random damage in the point's range (default 1 to 4). A vulnerable occupant that reaches 0 power dies, with the death cause naming the point. An invulnerable occupant floors at 1 power and cannot die. The avoid roll and the damage are both rolled at Advance and applied at Reveal.
 
 ## Settings
 
@@ -174,6 +176,7 @@ The Settings menu tunes every value the engine reads. Defaults:
 | Heal cooldown rounds | 3 |
 | Danger minimum damage | 1 |
 | Danger maximum damage | 4 |
+| Danger avoid chance | 0.25 |
 | Death chance base | 0.50 |
 | Death chance per power difference | 0.05 |
 | Death chance low-power bonus | 0.10 |

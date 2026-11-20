@@ -14,6 +14,7 @@ import type {
   WeaponPickup,
   WeaponType,
 } from "./types";
+import { weaponSlot } from "./weapons";
 
 export const parseEntries = (source: string): string[] =>
   source
@@ -54,6 +55,16 @@ const WEAPON_NAMES: Record<WeaponType, string> = {
 };
 
 const nameOfWeapon = (weapon?: WeaponType): string => (weapon ? WEAPON_NAMES[weapon] : "no weapon");
+
+// Human-readable description of both weapon slots, e.g. "Shotgun and a Sniper",
+// "Shotgun", or "no weapon" when both slots are empty.
+const describeLoadout = (combat?: WeaponType, ranged?: WeaponType): string => {
+  const parts: string[] = [];
+  if (combat) parts.push(WEAPON_NAMES[combat]);
+  if (ranged) parts.push(WEAPON_NAMES[ranged]);
+  if (!parts.length) return "no weapon";
+  return parts.join(" and a ");
+};
 
 // Secret combat bonus. Sniper grants no combat bonus.
 const combatBonus = (settings: Settings, weapon?: WeaponType): number =>
@@ -147,6 +158,9 @@ const buildBasicText = (
 
   const dangerEventLines = dangerEvents.map((event) => {
     const who = nameOfCharacter(campaign, event.characterId);
+    if (event.avoided) {
+      return `- ${who} stepped onto ${event.pointName} but avoided all damage.`;
+    }
     const outcome = event.died ? " and was killed" : "";
     return `- ${who} took ${event.damage} damage at ${event.pointName} (${event.powerBefore} → ${event.powerAfter})${outcome}.`;
   });
@@ -166,13 +180,16 @@ const buildBasicText = (
 const describeFight = (campaign: Campaign, fight: FightExchange): string => {
   const winner = nameOfCharacter(campaign, fight.winnerId);
   const loser = nameOfCharacter(campaign, fight.loserId);
-  const winnerWeapon = campaign.characters.find((character) => character.id === fight.winnerId)?.weapon;
-  const loserWeapon = campaign.characters.find((character) => character.id === fight.loserId)?.weapon;
+  const winnerChar = campaign.characters.find((character) => character.id === fight.winnerId);
+  const loserChar = campaign.characters.find((character) => character.id === fight.loserId);
   const chance = Math.round(fight.winnerChance * 100);
-  const weaponNote = `${winner} wielded ${nameOfWeapon(winnerWeapon)}; ${loser} wielded ${nameOfWeapon(loserWeapon)}.`;
+  const weaponNote = `${winner} wielded ${describeLoadout(winnerChar?.weapon, winnerChar?.rangedWeapon)}; ${loser} wielded ${describeLoadout(loserChar?.weapon, loserChar?.rangedWeapon)}.`;
   const winnerResult = `${winner} won with a ${chance}% chance and lost ${fight.winnerDamage} power (${fight.winnerPowerBefore} → ${fight.winnerPowerAfter}).`;
   if (fight.loserFate === "died") {
-    const drop = loserWeapon ? ` ${loser}'s ${nameOfWeapon(loserWeapon)} dropped at the scene.` : "";
+    const dropped = [loserChar?.weapon, loserChar?.rangedWeapon].filter(Boolean) as WeaponType[];
+    const drop = dropped.length
+      ? ` ${loser}'s ${dropped.map((weapon) => nameOfWeapon(weapon)).join(" and ")} dropped at the scene.`
+      : "";
     return `- ${weaponNote} ${winnerResult} ${loser} died in the fight.${drop}`;
   }
   const escapeArea = nameOfArea(campaign, fight.escapeAreaId ?? "");
@@ -221,7 +238,10 @@ export const buildSetupPrompt = (campaign: Campaign): string => {
   const characterLines = campaign.characters.map((character) => {
     const start = nameOfArea(campaign, character.startAreaId);
     const invuln = character.invulnerable ? ", invulnerable (cannot be killed)" : "";
-    const weapon = character.weapon ? `, carrying a ${nameOfWeapon(character.weapon)}` : "";
+    const hasWeapon = character.weapon || character.rangedWeapon;
+    const weapon = hasWeapon
+      ? `, carrying ${describeLoadout(character.weapon, character.rangedWeapon)}`
+      : "";
     return `- ${character.name} starts at ${start}${invuln}${weapon}.`;
   });
 
@@ -234,7 +254,7 @@ export const buildSetupPrompt = (campaign: Campaign): string => {
     "- Each round every living character randomly shifts power and either stays or moves to a connected cell.",
     "- When two or more characters share a cell, a conflict breaks out; higher power wins more often, and the loser may die or escape to a neighbouring cell.",
     "- Weapons give a hidden combat edge (shotgun strongest, then suppressed pistol, then knife). The sniper gives no close-combat edge.",
-    "- A character carries one weapon and always keeps the stronger one; weaker finds are left behind.",
+    "- A character carries one combat weapon and one ranged weapon (a sniper) and always keeps the stronger one per slot; weaker finds are left behind.",
     "- A sniper holder has a small chance each round to shoot a random character in a connected cell; such a shot can be an instant kill or deal flat damage.",
     "- Healing points restore power on a chance then go on cooldown. Danger points always hurt whoever stands on them and can kill the vulnerable.",
     "- Crates may be opened on arrival to reveal a weapon. Weapons dropped by the fallen can be claimed.",
@@ -360,38 +380,51 @@ const resolveGroundPickups = (
     if (character.status !== "active") return character;
     if (conflictAreaIds.has(character.areaId)) return character;
 
-    let current = character.weapon;
+    // Track both slots independently. A candidate weapon is routed to its own
+    // slot (combat vs ranged) and compared only against that slot's current
+    // weapon. For the ranged slot the sniper's combat bonus is 0, so
+    // isBetterWeapon reduces to "take it only if the ranged slot is empty".
+    let combat = character.weapon;
+    let ranged = character.rangedWeapon;
 
-    // Ground weapons: auto pick up the best better-than-current one on arrival.
+    const slotCurrent = (weapon: WeaponType) => (weaponSlot(weapon) === "ranged" ? ranged : combat);
+    const setSlot = (weapon: WeaponType) => {
+      if (weaponSlot(weapon) === "ranged") ranged = weapon;
+      else combat = weapon;
+    };
+
+    // Ground weapons: auto pick up the best better-than-current one per slot.
     const groundHere = weapons.filter((weapon) => weapon.areaId === character.areaId);
-    const bestGround = groundHere
-      .filter((weapon) => isBetterWeapon(settings, weapon.weapon, current))
-      .sort((a, b) => combatBonus(settings, b.weapon) - combatBonus(settings, a.weapon))[0];
-    if (bestGround) {
-      const replaced = current;
-      // Take the ground weapon off the cell.
-      weapons = weapons.filter((weapon) => weapon.id !== bestGround.id);
-      current = bestGround.weapon;
+    const takeBestGround = (slot: "combat" | "ranged") => {
+      const best = groundHere
+        .filter((weapon) => weaponSlot(weapon.weapon) === slot && weapons.some((w) => w.id === weapon.id))
+        .filter((weapon) => isBetterWeapon(settings, weapon.weapon, slotCurrent(weapon.weapon)))
+        .sort((a, b) => combatBonus(settings, b.weapon) - combatBonus(settings, a.weapon))[0];
+      if (!best) return;
+      const replaced = slotCurrent(best.weapon);
+      weapons = weapons.filter((weapon) => weapon.id !== best.id);
+      setSlot(best.weapon);
       pickups.push({
         characterId: character.id,
         areaId: character.areaId,
-        weapon: bestGround.weapon,
+        weapon: best.weapon,
         source: "ground",
         replaced,
       });
-      // The replaced weapon drops back onto the cell for later pickup.
       if (replaced) {
         weapons = [...weapons, { id: crypto.randomUUID(), areaId: character.areaId, weapon: replaced }];
       }
-    }
+    };
+    takeBestGround("combat");
+    takeBestGround("ranged");
 
-    // Crates: chance to open on entering; take contents if better.
+    // Crates: chance to open on entering; take contents if better for its slot.
     const crateHere = crates.find((crate) => crate.areaId === character.areaId && !crate.opened);
     if (crateHere && Math.random() < settings.crateFindChance) {
       crates = crates.map((crate) => (crate.id === crateHere.id ? { ...crate, opened: true } : crate));
-      if (isBetterWeapon(settings, crateHere.weapon, current)) {
-        const replaced = current;
-        current = crateHere.weapon;
+      if (isBetterWeapon(settings, crateHere.weapon, slotCurrent(crateHere.weapon))) {
+        const replaced = slotCurrent(crateHere.weapon);
+        setSlot(crateHere.weapon);
         pickups.push({
           characterId: character.id,
           areaId: character.areaId,
@@ -405,7 +438,9 @@ const resolveGroundPickups = (
       }
     }
 
-    return current === character.weapon ? character : { ...character, weapon: current };
+    return combat === character.weapon && ranged === character.rangedWeapon
+      ? character
+      : { ...character, weapon: combat, rangedWeapon: ranged };
   });
 
   return { characters: nextCharacters, weapons, crates, pickups };
@@ -422,7 +457,7 @@ const rollSniperShots = (
   const shots: SniperShot[] = [];
 
   for (const shooter of characters) {
-    if (shooter.status !== "active" || shooter.weapon !== "sniper") continue;
+    if (shooter.status !== "active" || shooter.rangedWeapon !== "sniper") continue;
     // A shooter caught in a conflict this round is busy fighting and does not
     // fire. Excluding conflict cells also keeps the two-phase invariant clean:
     // a sniper never pre-locks a shot against someone whose power/position is
@@ -527,8 +562,25 @@ const rollDangerEvents = (
       (character) => character.status === "active" && character.areaId === point.areaId,
     );
     for (const occupant of occupants) {
-      const damage = randomInteger(point.minDamage, point.maxDamage);
       const powerBefore = occupant.power;
+      // Avoidance is rolled and LOCKED here. An avoided event carries damage 0
+      // and leaves power unchanged at Reveal.
+      const avoided = Math.random() < point.avoidChance;
+      if (avoided) {
+        events.push({
+          characterId: occupant.id,
+          pointId: point.id,
+          pointName: point.name,
+          areaId: point.areaId,
+          damage: 0,
+          powerBefore,
+          powerAfter: powerBefore,
+          died: false,
+          avoided: true,
+        });
+        continue;
+      }
+      const damage = randomInteger(point.minDamage, point.maxDamage);
       const raw = powerBefore - damage;
       const died = !occupant.invulnerable && raw <= 0;
       const powerAfter = died ? 0 : occupant.invulnerable ? Math.max(1, raw) : raw;
@@ -541,6 +593,7 @@ const rollDangerEvents = (
         powerBefore,
         powerAfter,
         died,
+        avoided: false,
       });
     }
   }
@@ -561,57 +614,17 @@ const advanceHealCooldowns = (campaign: Campaign, healEvents: HealEvent[]): Heal
 
 // --- Round driver ---------------------------------------------------------
 
-export const runRound = (campaign: Campaign): Campaign => {
-  const settings = campaign.settings;
-  const movements: Movement[] = [];
-  const nextRound = campaign.game.round + 1;
-
-  const movedCharacters = campaign.characters.map((character): Character => {
-    if (character.status !== "active") return character;
-    const powerBefore = character.power;
-    const powerChange = randomInteger(settings.powerChangeMin, settings.powerChangeMax);
-    const changedPower = powerBefore + powerChange;
-    const powerAfter = character.invulnerable ? Math.max(1, changedPower) : Math.max(0, changedPower);
-
-    if (powerAfter <= 0) {
-      const opponent = character.lastOpponentId ? nameOfCharacter(campaign, character.lastOpponentId) : "";
-      const deathCause = opponent
-        ? `died from injuries from fight with ${opponent}.`
-        : "died in an accident / to the elements.";
-      movements.push({
-        characterId: character.id,
-        fromAreaId: character.areaId,
-        toAreaId: character.areaId,
-        powerBefore,
-        powerChange,
-        powerAfter,
-        deathCause,
-      });
-      return {
-        ...character,
-        power: 0,
-        status: "dead",
-        deathCause,
-        diedInRound: nextRound,
-      };
-    }
-
-    const area = campaign.areas.find((candidate) => candidate.id === character.areaId);
-    const eligibleNeighbors =
-      area?.neighborIds.filter((neighborId) => campaign.areas.some((candidate) => candidate.id === neighborId)) ?? [];
-    const stays = Math.random() < settings.stayChance || eligibleNeighbors.length === 0;
-    const toAreaId = stays ? character.areaId : choose(eligibleNeighbors);
-    movements.push({
-      characterId: character.id,
-      fromAreaId: character.areaId,
-      toAreaId,
-      powerBefore,
-      powerChange,
-      powerAfter,
-    });
-    return { ...character, areaId: toAreaId, power: powerAfter };
-  });
-
+// Shared tail of a round. Given the characters AFTER movement and the movement
+// records, it rolls and locks every hidden outcome (conflicts, pickups, sniper
+// shots, heals, dangers), builds the round text, and returns the campaign in
+// phase "outcome-hidden". Both runRound and runGeneratedConflict reuse this so
+// the two-phase invariant and pending assembly stay identical.
+const assembleRound = (
+  campaign: Campaign,
+  nextRound: number,
+  movedCharacters: Character[],
+  movements: Movement[],
+): Campaign => {
   const conflicts = campaign.areas.flatMap((area) => {
     const occupants = movedCharacters.filter(
       (character) => character.status === "active" && character.areaId === area.id,
@@ -701,6 +714,157 @@ export const runRound = (campaign: Campaign): Campaign => {
   };
 };
 
+export const runRound = (campaign: Campaign): Campaign => {
+  const settings = campaign.settings;
+  const movements: Movement[] = [];
+  const nextRound = campaign.game.round + 1;
+
+  const movedCharacters = campaign.characters.map((character): Character => {
+    if (character.status !== "active") return character;
+    const powerBefore = character.power;
+    const powerChange = randomInteger(settings.powerChangeMin, settings.powerChangeMax);
+    const changedPower = powerBefore + powerChange;
+    const powerAfter = character.invulnerable ? Math.max(1, changedPower) : Math.max(0, changedPower);
+
+    if (powerAfter <= 0) {
+      const opponent = character.lastOpponentId ? nameOfCharacter(campaign, character.lastOpponentId) : "";
+      const deathCause = opponent
+        ? `died from injuries from fight with ${opponent}.`
+        : "died in an accident / to the elements.";
+      movements.push({
+        characterId: character.id,
+        fromAreaId: character.areaId,
+        toAreaId: character.areaId,
+        powerBefore,
+        powerChange,
+        powerAfter,
+        deathCause,
+      });
+      return {
+        ...character,
+        power: 0,
+        status: "dead",
+        deathCause,
+        diedInRound: nextRound,
+      };
+    }
+
+    const area = campaign.areas.find((candidate) => candidate.id === character.areaId);
+    const eligibleNeighbors =
+      area?.neighborIds.filter((neighborId) => campaign.areas.some((candidate) => candidate.id === neighborId)) ?? [];
+    const stays = Math.random() < settings.stayChance || eligibleNeighbors.length === 0;
+    const toAreaId = stays ? character.areaId : choose(eligibleNeighbors);
+    movements.push({
+      characterId: character.id,
+      fromAreaId: character.areaId,
+      toAreaId,
+      powerBefore,
+      powerChange,
+      powerAfter,
+    });
+    return { ...character, areaId: toAreaId, power: powerAfter };
+  });
+
+  return assembleRound(campaign, nextRound, movedCharacters, movements);
+};
+
+// Generate-conflict variant of a round. It picks two distinct random LIVING
+// characters who are NOT already colliding with another living character and
+// teleports BOTH to one shared random cell so a conflict forms there, then runs
+// the exact same locked-roll pipeline as runRound. The two chosen characters do
+// not take a normal random move (they are placed); everyone else moves normally
+// via the same power/stay logic. It ends in "outcome-hidden" and does NOT
+// reveal. If fewer than two eligible characters exist, the campaign is returned
+// unchanged so the caller can disable the button.
+export const runGeneratedConflict = (campaign: Campaign): Campaign => {
+  const settings = campaign.settings;
+  const living = campaign.characters.filter((character) => character.status === "active");
+  if (living.length < 2) return campaign;
+
+  // A character is eligible if no other living character currently shares their
+  // cell (picking two who already collide would not add a new conflict and
+  // could merge three into one cell unexpectedly).
+  const occupantCount = new Map<string, number>();
+  for (const character of living) {
+    occupantCount.set(character.areaId, (occupantCount.get(character.areaId) ?? 0) + 1);
+  }
+  const eligible = living.filter((character) => (occupantCount.get(character.areaId) ?? 0) === 1);
+  if (eligible.length < 2) return campaign;
+
+  const shuffled = shuffle(eligible);
+  const [first, second] = shuffled;
+  const targetAreaId = choose(campaign.areas).id;
+  const forcedIds = new Set([first.id, second.id]);
+
+  const movements: Movement[] = [];
+  const nextRound = campaign.game.round + 1;
+
+  const movedCharacters = campaign.characters.map((character): Character => {
+    if (character.status !== "active") return character;
+    const powerBefore = character.power;
+    const powerChange = randomInteger(settings.powerChangeMin, settings.powerChangeMax);
+    const changedPower = powerBefore + powerChange;
+    const powerAfter = character.invulnerable ? Math.max(1, changedPower) : Math.max(0, changedPower);
+
+    if (powerAfter <= 0) {
+      const opponent = character.lastOpponentId ? nameOfCharacter(campaign, character.lastOpponentId) : "";
+      const deathCause = opponent
+        ? `died from injuries from fight with ${opponent}.`
+        : "died in an accident / to the elements.";
+      movements.push({
+        characterId: character.id,
+        fromAreaId: character.areaId,
+        toAreaId: character.areaId,
+        powerBefore,
+        powerChange,
+        powerAfter,
+        deathCause,
+      });
+      return { ...character, power: 0, status: "dead", deathCause, diedInRound: nextRound };
+    }
+
+    // The two chosen characters are teleported to the shared cell; they do not
+    // take a normal random move.
+    if (forcedIds.has(character.id)) {
+      movements.push({
+        characterId: character.id,
+        fromAreaId: character.areaId,
+        toAreaId: targetAreaId,
+        powerBefore,
+        powerChange,
+        powerAfter,
+      });
+      return { ...character, areaId: targetAreaId, power: powerAfter };
+    }
+
+    const area = campaign.areas.find((candidate) => candidate.id === character.areaId);
+    const eligibleNeighbors =
+      area?.neighborIds.filter((neighborId) => campaign.areas.some((candidate) => candidate.id === neighborId)) ?? [];
+    const stays = Math.random() < settings.stayChance || eligibleNeighbors.length === 0;
+    const toAreaId = stays ? character.areaId : choose(eligibleNeighbors);
+    movements.push({
+      characterId: character.id,
+      fromAreaId: character.areaId,
+      toAreaId,
+      powerBefore,
+      powerChange,
+      powerAfter,
+    });
+    return { ...character, areaId: toAreaId, power: powerAfter };
+  });
+
+  return assembleRound(campaign, nextRound, movedCharacters, movements);
+};
+
+// Join basic + conflict text for the copy-both button. Returns basic alone when
+// there is no conflict text; otherwise basic, a blank line, a separator, a blank
+// line, then the conflict text.
+export const joinRoundText = (basicText: string, conflictText: string): string => {
+  if (!conflictText.trim()) return basicText;
+  const separator = "========================================";
+  return `${basicText}\n\n${separator}\n\n${conflictText}`;
+};
+
 // --- Reveal ----------------------------------------------------------------
 
 export const revealOutcomes = (campaign: Campaign): Campaign => {
@@ -733,9 +897,14 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
       if (groundIndex >= 0) groundWeapons = groundWeapons.filter((_, index) => index !== groundIndex);
     }
 
-    characters = characters.map((character) =>
-      character.id === picker.id ? { ...character, weapon: pickup.weapon } : character,
-    );
+    // Route the picked-up weapon into its slot (ranged for snipers, combat
+    // otherwise). The replaced weapon came from the SAME slot.
+    characters = characters.map((character) => {
+      if (character.id !== picker.id) return character;
+      return weaponSlot(pickup.weapon) === "ranged"
+        ? { ...character, rangedWeapon: pickup.weapon }
+        : { ...character, weapon: pickup.weapon };
+    });
     if (pickup.replaced) {
       groundWeapons = [
         ...groundWeapons,
@@ -751,7 +920,8 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
     for (const fight of outcome.fights) {
       const winnerName = nameOfCharacter(campaign, fight.winnerId);
       const loserBefore = find(fight.loserId);
-      const loserWeapon = loserBefore?.weapon;
+      const loserCombatWeapon = loserBefore?.weapon;
+      const loserRangedWeapon = loserBefore?.rangedWeapon;
       const loserDied = fight.loserFate === "died";
 
       characters = characters.map((character): Character => {
@@ -767,30 +937,44 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           lastOpponentId: fight.winnerId,
           deathCause: loserDied ? `Died in fight with ${winnerName}.` : undefined,
           diedInRound: loserDied ? campaign.game.round : undefined,
+          // On death BOTH slots are cleared; the weapons drop below.
           weapon: loserDied ? undefined : character.weapon,
+          rangedWeapon: loserDied ? undefined : character.rangedWeapon,
         };
       });
 
-      // The fallen rival's weapon drops; the killer claims it only if better.
-      if (loserDied && loserWeapon) {
-        const winner = find(fight.winnerId);
-        if (winner && winner.status === "active" && isBetterWeapon(settings, loserWeapon, winner.weapon)) {
-          const replaced = winner.weapon;
-          characters = characters.map((character) =>
-            character.id === winner.id ? { ...character, weapon: loserWeapon } : character,
-          );
-          if (replaced) {
+      // The fallen rival's weapons drop. For each slot the killer claims the
+      // dropped weapon only when it is better for that killer's same slot;
+      // otherwise it lands on the conflict cell.
+      if (loserDied) {
+        const claimDrop = (dropped?: WeaponType) => {
+          if (!dropped) return;
+          const slot = weaponSlot(dropped);
+          const winner = find(fight.winnerId);
+          const winnerCurrent = winner ? (slot === "ranged" ? winner.rangedWeapon : winner.weapon) : undefined;
+          if (winner && winner.status === "active" && isBetterWeapon(settings, dropped, winnerCurrent)) {
+            const replaced = winnerCurrent;
+            characters = characters.map((character) => {
+              if (character.id !== winner.id) return character;
+              return slot === "ranged"
+                ? { ...character, rangedWeapon: dropped }
+                : { ...character, weapon: dropped };
+            });
+            if (replaced) {
+              droppedWeapons = [
+                ...droppedWeapons,
+                { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: replaced },
+              ];
+            }
+          } else {
             droppedWeapons = [
               ...droppedWeapons,
-              { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: replaced },
+              { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: dropped },
             ];
           }
-        } else {
-          droppedWeapons = [
-            ...droppedWeapons,
-            { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: loserWeapon },
-          ];
-        }
+        };
+        claimDrop(loserCombatWeapon);
+        claimDrop(loserRangedWeapon);
       }
     }
   }
@@ -819,6 +1003,7 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           deathCause: `Shot dead by ${nameOfCharacter(campaign, shot.shooterId)}'s sniper.`,
           diedInRound: campaign.game.round,
           weapon: undefined,
+          rangedWeapon: undefined,
         };
       }
       // Fall back to -damage for legacy pending shots saved before powerDelta.
@@ -832,6 +1017,7 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           deathCause: `Shot dead by ${nameOfCharacter(campaign, shot.shooterId)}'s sniper.`,
           diedInRound: campaign.game.round,
           weapon: undefined,
+          rangedWeapon: undefined,
         };
       }
       return { ...character, power: character.invulnerable ? Math.max(1, raw) : raw };
@@ -841,6 +1027,8 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
   // 3) Danger points (pre-rolled). Skip the already dead, and skip a character
   //    whose area changed (they left the danger cell during conflict escape).
   for (const event of campaign.game.pendingDangerEvents) {
+    // Avoided events (rolled at Advance) apply no damage.
+    if (event.avoided) continue;
     characters = characters.map((character): Character => {
       if (character.id !== event.characterId || character.status !== "active") return character;
       // Legacy pending events (saved before areaId was tracked) have no areaId;
@@ -855,6 +1043,7 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           deathCause: `Killed at ${event.pointName}.`,
           diedInRound: campaign.game.round,
           weapon: undefined,
+          rangedWeapon: undefined,
         };
       }
       return { ...character, power: character.invulnerable ? Math.max(1, raw) : raw };
