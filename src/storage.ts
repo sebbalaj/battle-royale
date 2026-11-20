@@ -88,3 +88,42 @@ export const deleteLayout = async (id: string): Promise<void> => {
     transaction.onerror = () => reject(transaction.error);
   });
 };
+
+// --- Backup export / import ----------------------------------------------
+
+// Shape of a full backup file: the current campaign plus every saved layout.
+export type BackupFile = {
+  format: "battle-royale-backup";
+  version: 1;
+  exportedAt: number;
+  campaign: Campaign;
+  layouts: LayoutSlot[];
+};
+
+export const exportBackup = async (): Promise<BackupFile> => {
+  const [campaign, layouts] = await Promise.all([loadCampaign(), listLayouts()]);
+  return {
+    format: "battle-royale-backup",
+    version: 1,
+    exportedAt: Date.now(),
+    campaign: campaign as Campaign,
+    layouts,
+  };
+};
+
+// Validate a parsed backup object before importing it.
+export const isBackupFile = (value: unknown): value is BackupFile => {
+  if (!value || typeof value !== "object") return false;
+  const file = value as Partial<BackupFile>;
+  return file.format === "battle-royale-backup" && Boolean(file.campaign) && Array.isArray(file.layouts);
+};
+
+// Replace the current campaign and merge the backup's layouts into storage.
+// Returns the imported campaign so the caller can load it into app state.
+export const importBackup = async (file: BackupFile): Promise<Campaign> => {
+  await saveCampaign(file.campaign);
+  for (const slot of file.layouts) {
+    await saveLayout(slot);
+  }
+  return file.campaign;
+};

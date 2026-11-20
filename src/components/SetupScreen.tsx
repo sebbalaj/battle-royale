@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { readImageFile } from "../imageFiles";
 import { buildSetupPrompt, parseEntries } from "../game";
-import { deleteLayout, listLayouts, saveLayout } from "../storage";
+import { deleteLayout, exportBackup, importBackup, isBackupFile, listLayouts, saveLayout } from "../storage";
 import { emptyGameState } from "../data";
 import type {
   Area,
@@ -28,6 +28,7 @@ type SetupScreenProps = {
   onStart: () => void;
   onReset: () => void;
   onOpenSettings: () => void;
+  onImport: (campaign: Campaign) => void;
 };
 
 type EditTool = "select" | "place" | "connect";
@@ -50,7 +51,7 @@ const nextPointNumber = (points: { name: string }[], prefix: string): number => 
 const randomWeapon = (): WeaponType => WEAPON_TYPES[Math.floor(Math.random() * WEAPON_TYPES.length)];
 const randomAreaId = (areas: Area[]): string => areas[Math.floor(Math.random() * areas.length)].id;
 
-export default function SetupScreen({ campaign, onChange, onStart, onReset, onOpenSettings }: SetupScreenProps) {
+export default function SetupScreen({ campaign, onChange, onStart, onReset, onOpenSettings, onImport }: SetupScreenProps) {
   const [tool, setTool] = useState<EditTool>("select");
   const [placementKind, setPlacementKind] = useState<PlacementKind>("weapon");
   const [placementWeapon, setPlacementWeapon] = useState<WeaponType>("shotgun");
@@ -61,6 +62,8 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
   const [layouts, setLayouts] = useState<LayoutSlot[]>([]);
   const [layoutName, setLayoutName] = useState("");
   const [layoutError, setLayoutError] = useState("");
+  const [backupError, setBackupError] = useState("");
+  const [backupStatus, setBackupStatus] = useState("");
   const entries = useMemo(() => parseEntries(campaign.phraseSource), [campaign.phraseSource]);
   const setupPrompt = useMemo(() => buildSetupPrompt(campaign), [campaign]);
   const selectedArea = campaign.areas.find((area) => area.id === selectedAreaId);
@@ -70,6 +73,53 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
     void listLayouts()
       .then(setLayouts)
       .catch(() => setLayoutError("Saved layouts are unavailable in this browser session."));
+  };
+
+  // Download the whole backup (current campaign + every saved layout) as a
+  // single JSON file the user can keep or move to another device.
+  const handleExportBackup = async () => {
+    setBackupError("");
+    setBackupStatus("");
+    try {
+      const backup = await exportBackup();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `battle-royale-backup-${stamp}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setBackupStatus("Backup downloaded.");
+    } catch {
+      setBackupError("Could not export the backup.");
+    }
+  };
+
+  // Import a backup file. Replaces the current campaign and merges its saved
+  // layouts, after a confirmation since it overwrites the current campaign.
+  const handleImportBackup = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBackupError("");
+    setBackupStatus("");
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isBackupFile(parsed)) {
+        setBackupError("That file is not a Battle Royale backup.");
+        return;
+      }
+      if (!window.confirm("Import this backup? It replaces your current campaign and adds its saved layouts.")) return;
+      const imported = await importBackup(parsed);
+      onImport(imported);
+      refreshLayouts();
+      setBackupStatus("Backup imported.");
+    } catch {
+      setBackupError("Could not read that backup file.");
+    }
   };
 
   useEffect(() => {
@@ -721,7 +771,20 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
 
       <section className="panel setup-section">
         <div className="section-heading">
-          <div><span className="step-number">07</span><h2>World description for an AI</h2></div>
+          <div><span className="step-number">07</span><h2>Backup and restore</h2></div>
+        </div>
+        <p className="helper-text">Everything is stored only in this browser. Export a backup file to keep it safe or move it to another device; importing replaces your current campaign and adds its saved layouts.</p>
+        {backupError && <p className="error-message" role="alert">{backupError}</p>}
+        {backupStatus && <p className="success-message" role="status">{backupStatus}</p>}
+        <div className="backup-actions">
+          <button className="secondary-button" onClick={() => void handleExportBackup()}>Export backup</button>
+          <label className="upload-button">Import backup<input type="file" accept="application/json,.json" onChange={(event) => void handleImportBackup(event)} /></label>
+        </div>
+      </section>
+
+      <section className="panel setup-section">
+        <div className="section-heading">
+          <div><span className="step-number">08</span><h2>World description for an AI</h2></div>
         </div>
         <p className="helper-text">Copy this to describe the map connections, starting locations, points, and rules to a storytelling AI.</p>
         <CopyPanel

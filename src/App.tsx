@@ -91,6 +91,10 @@ export default function App() {
   const openSettings = () => setCampaign({ ...campaign, screen: "settings" });
   const backToSetup = () => setCampaign({ ...campaign, screen: "setup" });
 
+  // Load an imported backup into app state (storage is already written by the
+  // importer); force the setup screen so the user lands somewhere stable.
+  const importCampaign = (imported: Campaign) => setCampaign({ ...imported, screen: "setup" });
+
   const resetPlaceholders = () => {
     if (!window.confirm("Replace the current local campaign with all placeholder content?")) return;
     setCampaign(createDefaultCampaign());
@@ -102,7 +106,7 @@ export default function App() {
       {campaign.screen === "settings" ? (
         <SettingsScreen campaign={campaign} onChange={setCampaign} onBack={backToSetup} />
       ) : campaign.screen === "setup" ? (
-        <SetupScreen campaign={campaign} onChange={setCampaign} onStart={startBattle} onReset={resetPlaceholders} onOpenSettings={openSettings} />
+        <SetupScreen campaign={campaign} onChange={setCampaign} onStart={startBattle} onReset={resetPlaceholders} onOpenSettings={openSettings} onImport={importCampaign} />
       ) : (
         <GameScreen
           campaign={campaign}

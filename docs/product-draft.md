@@ -311,8 +311,12 @@ Campaigns are stored at version 4. Older saves are migrated automatically to ver
 
 The migration also normalizes per-character state to the two-slot model: an old single sniper weapon moves to the ranged slot, any other old weapon moves to the combat slot, and a character may end up holding both. Every migrated danger point gets an avoid chance, defaulting to 0.25 when the save did not store one. Custom dead-body images are left unset after migration.
 
+### Backup and restore
+
+Because all data lives only in the current browser (and can be lost if the browser's site data is cleared), the setup screen offers manual backup. **Export backup** downloads a single JSON file containing the current campaign and every saved layout. **Import backup** reads such a file, replaces the current campaign, and merges its layouts into storage, after a confirmation. The imported campaign is validated by a `format: "battle-royale-backup"` marker before it is applied. This also lets a campaign move between devices or browsers.
+
 ## Future options
 
-- Campaign export/import and multiple campaigns.
+- Multiple simultaneous campaigns.
 - Automatic nearby-route suggestions.
 - Direct AI text and image APIs.
