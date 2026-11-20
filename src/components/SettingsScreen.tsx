@@ -1,38 +1,12 @@
 import type { Campaign, Settings, WeaponType } from "../types";
 import { WEAPON_NAMES } from "../weapons";
+import NumberField from "./NumberField";
 
 type SettingsScreenProps = {
   campaign: Campaign;
   onChange: (campaign: Campaign) => void;
   onBack: () => void;
 };
-
-type NumberFieldProps = {
-  label: string;
-  value: number;
-  step?: number;
-  min?: number;
-  max?: number;
-  hint?: string;
-  onChange: (value: number) => void;
-};
-
-function NumberField({ label, value, step = 1, min, max, hint, onChange }: NumberFieldProps) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        type="number"
-        value={Number.isFinite(value) ? value : 0}
-        step={step}
-        min={min}
-        max={max}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-      {hint && <small className="settings-hint">{hint}</small>}
-    </label>
-  );
-}
 
 export default function SettingsScreen({ campaign, onChange, onBack }: SettingsScreenProps) {
   const settings = campaign.settings;
@@ -108,6 +82,7 @@ export default function SettingsScreen({ campaign, onChange, onBack }: SettingsS
           <NumberField label="Default heal cooldown (rounds)" value={settings.healCooldownRounds} min={0} onChange={(value) => update({ healCooldownRounds: value })} />
           <NumberField label="Default danger min damage" value={settings.dangerMinDamage} min={0} onChange={(value) => update({ dangerMinDamage: value })} />
           <NumberField label="Default danger max damage" value={settings.dangerMaxDamage} min={0} onChange={(value) => update({ dangerMaxDamage: value })} />
+          <NumberField label="Default danger avoid chance (0–1)" value={settings.dangerAvoidChance} step={0.05} min={0} max={1} hint="Chance each occupant avoids all danger damage that round." onChange={(value) => update({ dangerAvoidChance: value })} />
         </div>
       </section>
 

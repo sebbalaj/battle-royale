@@ -14,9 +14,13 @@ import type {
   MapWeapon,
   WeaponType,
 } from "../types";
-import { WEAPON_NAMES, WEAPON_TYPES } from "../weapons";
+import { WEAPON_NAMES, WEAPON_TYPES, weaponSlot } from "../weapons";
 import CopyPanel from "./CopyPanel";
 import MapBoard from "./MapBoard";
+import NumberField from "./NumberField";
+
+const COMBAT_WEAPONS = WEAPON_TYPES.filter((weapon) => weaponSlot(weapon) === "combat");
+const RANGED_WEAPONS = WEAPON_TYPES.filter((weapon) => weaponSlot(weapon) === "ranged");
 
 type SetupScreenProps = {
   campaign: Campaign;
@@ -494,13 +498,23 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
                   </select>
                 </label>
                 <label className="field">
-                  <span>Weapon</span>
+                  <span>Combat weapon</span>
                   <select
                     value={character.weapon ?? ""}
                     onChange={(event) => updateCharacter(character.id, { weapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
                   >
                     <option value="">None</option>
-                    {WEAPON_TYPES.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
+                    {COMBAT_WEAPONS.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Ranged weapon</span>
+                  <select
+                    value={character.rangedWeapon ?? ""}
+                    onChange={(event) => updateCharacter(character.id, { rangedWeapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
+                  >
+                    <option value="">None</option>
+                    {RANGED_WEAPONS.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
                   </select>
                 </label>
                 <div className="character-rule-row">
@@ -591,9 +605,9 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
                     </div>
                     <div className="placed-config-fields">
                       <label className="field"><span>Name</span><input value={point.name} onChange={(event) => updateHealingPoint(point.id, { name: event.target.value })} /></label>
-                      <label className="field"><span>Heal amount</span><input type="number" min="0" value={point.healAmount} onChange={(event) => updateHealingPoint(point.id, { healAmount: Number(event.target.value) })} /></label>
-                      <label className="field"><span>Chance (0–1)</span><input type="number" min="0" max="1" step="0.05" value={point.chance} onChange={(event) => updateHealingPoint(point.id, { chance: Number(event.target.value) })} /></label>
-                      <label className="field"><span>Cooldown (rounds)</span><input type="number" min="0" value={point.cooldownRounds} onChange={(event) => updateHealingPoint(point.id, { cooldownRounds: Number(event.target.value) })} /></label>
+                      <NumberField label="Heal amount" value={point.healAmount} min={0} onChange={(value) => updateHealingPoint(point.id, { healAmount: value })} />
+                      <NumberField label="Chance (0–1)" value={point.chance} min={0} max={1} step={0.05} onChange={(value) => updateHealingPoint(point.id, { chance: value })} />
+                      <NumberField label="Cooldown (rounds)" value={point.cooldownRounds} min={0} onChange={(value) => updateHealingPoint(point.id, { cooldownRounds: value })} />
                     </div>
                   </div>
                 ))}
@@ -610,8 +624,9 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
                     </div>
                     <div className="placed-config-fields">
                       <label className="field"><span>Name</span><input value={point.name} onChange={(event) => updateDangerPoint(point.id, { name: event.target.value })} /></label>
-                      <label className="field"><span>Min damage</span><input type="number" min="0" value={point.minDamage} onChange={(event) => updateDangerPoint(point.id, { minDamage: Number(event.target.value) })} /></label>
-                      <label className="field"><span>Max damage</span><input type="number" min="0" value={point.maxDamage} onChange={(event) => updateDangerPoint(point.id, { maxDamage: Number(event.target.value) })} /></label>
+                      <NumberField label="Min damage" value={point.minDamage} min={0} onChange={(value) => updateDangerPoint(point.id, { minDamage: value })} />
+                      <NumberField label="Max damage" value={point.maxDamage} min={0} onChange={(value) => updateDangerPoint(point.id, { maxDamage: value })} />
+                      <NumberField label="Avoid chance (0–1)" value={point.avoidChance} min={0} max={1} step={0.05} onChange={(value) => updateDangerPoint(point.id, { avoidChance: value })} />
                     </div>
                   </div>
                 ))}
