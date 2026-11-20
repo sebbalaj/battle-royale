@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { Character } from "../types";
 import { readImageFile } from "../imageFiles";
 
@@ -42,6 +43,31 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
   const [index, setIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gestureStart = useRef<{ x: number; y: number } | null>(null);
+  // Track the visual viewport so the overlay covers the actually-visible area
+  // even when the page is pinch-zoomed or scrolled (plain position:fixed pins
+  // to the layout viewport, which leaves the overlay misplaced under zoom).
+  const [viewport, setViewport] = useState<CSSProperties>({ position: "fixed", inset: 0 });
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      setViewport({
+        position: "fixed",
+        left: vv.offsetLeft,
+        top: vv.offsetTop,
+        width: vv.width,
+        height: vv.height,
+      });
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
 
   const count = characters.length;
   const current = characters[Math.min(index, count - 1)];
@@ -140,8 +166,10 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
   // No visible HUD: just the image. Navigation is swipe left/right, paste is
   // swipe up, remove is swipe down, and swiping back from the first image (or
   // a backdrop tap / Escape) closes the viewer.
-  return (
-    <div className="cell-viewer" role="dialog" aria-modal="true" aria-label={`Fallen and survivors at ${areaName}`}>
+  // Portal to <body> and pin to the visual viewport so the overlay is truly
+  // fullscreen no matter how the page is zoomed or scrolled.
+  return createPortal(
+    <div className="cell-viewer" style={viewport} role="dialog" aria-modal="true" aria-label={`Fallen and survivors at ${areaName}`}>
       <div className="cell-viewer-backdrop" onClick={onClose} />
       <div
         className="cell-viewer-stage"
@@ -162,6 +190,7 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
           event.target.value = "";
         }}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }

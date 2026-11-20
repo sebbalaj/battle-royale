@@ -261,7 +261,7 @@ Weapon names appear in the round and conflict texts. The numeric secret bonus is
 
 ## Fullscreen cell viewer and dead-body images
 
-On the game screen only, a single tap on a map cell opens a fullscreen viewer for the characters on that cell. The viewer shows one image at a time rather than a gallery, with no visible controls or HUD over the image. Characters are ordered dead first, then living. A dead character shows its custom dead-body image if one is set, otherwise its greyed portrait; a living character shows its normal portrait.
+On the game screen only, a single tap on a map cell opens a fullscreen viewer for the characters on that cell. The viewer is rendered in a body-level portal and pinned to the visual viewport, so it covers the whole screen even when the page is pinch-zoomed or scrolled. It shows one image at a time rather than a gallery, with no visible controls or HUD over the image. Characters are ordered dead first, then living. A dead character shows its custom dead-body image if one is set, otherwise its greyed portrait; a living character shows its normal portrait.
 
 Navigation between characters uses a horizontal swipe or the left and right arrow keys. Swiping back from the first image closes the viewer; a backdrop tap or the Escape key also closes it. There are no on-screen buttons.
 
@@ -286,9 +286,9 @@ The Setup screen offers a third copyable text that describes the world for an ex
 
 ## Map visuals
 
-Map portraits are enlarged for readability, and the power number is moved off the face so it no longer covers the portrait. Each portrait can show up to two weapon glyphs at once, one for the combat slot and one for the ranged slot, so a character carrying both a combat weapon and a sniper shows both. During the hidden phase, a sniper aim line is drawn from each shooter's cell to their target's cell, the shooter portrait is marked as taking aim, and the target portrait is marked as being in a sniper's sights. The map renders markers for crates, healing points, and danger points on their cells.
+Map portraits are enlarged for readability, and the power number is moved off the face so it no longer covers the portrait. The power number is shown only for living characters; a dead character shows no power number. Each portrait can show up to two weapon glyphs at once, one for the combat slot and one for the ranged slot, so a character carrying both a combat weapon and a sniper shows both. During the hidden phase, a sniper aim line is drawn from each shooter's cell to their target's cell, the shooter portrait is marked as taking aim, and the target portrait is marked as being in a sniper's sights. The map renders markers for crates, healing points, and danger points on their cells.
 
-A living character and a dead character without a custom dead-body image both render as a circular portrait, with the dead one greyed. A dead character with a custom dead-body image instead renders that image in its natural aspect ratio inside a small letterboxed rectangle (object-fit: contain), neither greyed nor circular, so an uploaded body reads clearly on the minimap.
+A living character and a dead character without a custom dead-body image both render as a circular portrait, with the dead one greyed. A dead character with a custom dead-body image instead renders that image in its natural aspect ratio (object-fit: contain) with no border, background, or circle, and it overlaps surrounding markers and portraits so an uploaded body reads clearly on the minimap.
 
 ## Visible power
 

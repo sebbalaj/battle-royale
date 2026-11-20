@@ -410,6 +410,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
         </div>
         <div className="setup-header-actions">
           <button className="secondary-button" onClick={onOpenSettings}>Settings</button>
+          <button className="primary-button launch-button" disabled={!canStart} onClick={onStart}>Start battle</button>
           <div className="save-pill"><span className="save-dot" /> Auto-saved locally</div>
         </div>
       </header>
@@ -711,6 +712,8 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
         </div>
         <button className="primary-button launch-button" disabled={!canStart} onClick={onStart}>Start battle</button>
       </section>
+
+      {/* Start is also available at the top of the page in the header. */}
 
       <button className="reset-link" onClick={onReset}>Restore all placeholder content</button>
     </main>

@@ -211,7 +211,7 @@ export default function MapBoard({
                       )}
                       {isShooter && <span className="map-shooter-badge" aria-hidden="true">🎯</span>}
                       {isTargeted && <span className="map-target-badge" aria-hidden="true">◎</span>}
-                      <span className="map-power-badge">{character.power}</span>
+                      {character.status !== "dead" && <span className="map-power-badge">{character.power}</span>}
                     </div>
                   );
                 })}
