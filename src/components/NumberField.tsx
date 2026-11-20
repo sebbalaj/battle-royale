@@ -41,7 +41,11 @@ export default function NumberField({ label, value, step = 1, min, max, hint, fa
     setDraft(next);
     if (next.trim() === "") return;
     const parsed = Number(next);
-    if (Number.isFinite(parsed)) onChange(parsed);
+    // Push a clamped value to state as the user types so engine consumers never
+    // see an out-of-range number mid-edit (e.g. a chance > 1 or a negative
+    // damage). The draft string stays as typed so the field can still be
+    // cleared or retyped freely; blur reconciles the draft to the clamped value.
+    if (Number.isFinite(parsed)) onChange(clamp(parsed, min, max));
   };
 
   const handleBlur = () => {

@@ -70,13 +70,20 @@ const describeLoadout = (combat?: WeaponType, ranged?: WeaponType): string => {
 const combatBonus = (settings: Settings, weapon?: WeaponType): number =>
   weapon ? settings.weaponBonuses[weapon] ?? 0 : 0;
 
-// A candidate weapon is kept only when it has a strictly higher combat bonus
-// than the current one (sniper's bonus is 0 for this comparison). Because the
-// sniper bonus is 0, a sniper is only taken when the character currently has no
-// weapon or another 0-bonus weapon; this matches "always keep the better weapon
-// by power bonus".
-const isBetterWeapon = (settings: Settings, candidate: WeaponType, current?: WeaponType): boolean =>
-  combatBonus(settings, candidate) > combatBonus(settings, current);
+// Whether a candidate weapon should be acquired into its slot, given the slot's
+// current weapon. The two slots keep different rules:
+//   - combat: keep the candidate only when it has a strictly higher combat
+//     bonus than the current combat weapon ("better weapon by power bonus").
+//   - ranged: the sniper carries no combat bonus, so a strict bonus comparison
+//     would never fire (0 > 0 is false). Instead take a ranged weapon whenever
+//     the slot is empty, or when the candidate's bonus is strictly higher than
+//     the current ranged weapon's (so a future stronger ranged weapon upgrades).
+const isBetterWeapon = (settings: Settings, candidate: WeaponType, current?: WeaponType): boolean => {
+  if (weaponSlot(candidate) === "ranged") {
+    return !current || combatBonus(settings, candidate) > combatBonus(settings, current);
+  }
+  return combatBonus(settings, candidate) > combatBonus(settings, current);
+};
 
 // --- Combat maths ---------------------------------------------------------
 
@@ -382,8 +389,8 @@ const resolveGroundPickups = (
 
     // Track both slots independently. A candidate weapon is routed to its own
     // slot (combat vs ranged) and compared only against that slot's current
-    // weapon. For the ranged slot the sniper's combat bonus is 0, so
-    // isBetterWeapon reduces to "take it only if the ranged slot is empty".
+    // weapon via isBetterWeapon, which for the ranged slot takes the weapon
+    // whenever that slot is empty (or the candidate is strictly better).
     let combat = character.weapon;
     let ranged = character.rangedWeapon;
 
@@ -793,8 +800,16 @@ export const runGeneratedConflict = (campaign: Campaign): Campaign => {
 
   const shuffled = shuffle(eligible);
   const [first, second] = shuffled;
-  const targetAreaId = choose(campaign.areas).id;
   const forcedIds = new Set([first.id, second.id]);
+
+  // Pick a shared cell that no OTHER living character already occupies, so the
+  // generated conflict is a clean duel between the two chosen characters rather
+  // than an accidental three-way. Fall back to any area if every cell is taken.
+  const occupiedByOthers = new Set(
+    living.filter((character) => !forcedIds.has(character.id)).map((character) => character.areaId),
+  );
+  const freeAreas = campaign.areas.filter((area) => !occupiedByOthers.has(area.id));
+  const targetAreaId = choose(freeAreas.length ? freeAreas : campaign.areas).id;
 
   const movements: Movement[] = [];
   const nextRound = campaign.game.round + 1;
