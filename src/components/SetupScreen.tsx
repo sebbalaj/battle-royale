@@ -1,17 +1,30 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { readImageFile } from "../imageFiles";
 import { buildSetupPrompt, parseEntries } from "../game";
-import { deleteLayout, exportBackup, importBackup, isBackupFile, listLayouts, saveLayout } from "../storage";
-import { createAttire, emptyGameState } from "../data";
+import {
+  deleteMap,
+  exportBackup,
+  importBackup,
+  importMap,
+  isAttireFile,
+  isBackupFile,
+  isMapFile,
+  listMaps,
+  saveMap,
+} from "../storage";
+import { activeAttire, createAttire, withActiveAttire } from "../data";
+import { useLongPress } from "../useLongPress";
 import type {
   Area,
+  Attire,
   Campaign,
   Character,
   Crate,
   DangerPoint,
   HealingPoint,
-  LayoutSlot,
+  LootPreset,
   MapWeapon,
+  SavedMap,
   WeaponType,
 } from "../types";
 import { WEAPON_NAMES, WEAPON_TYPES, weaponSlot } from "../weapons";
@@ -35,6 +48,7 @@ type EditTool = "select" | "place" | "connect";
 type PlacementKind = "weapon" | "crate" | "heal" | "danger";
 
 const asset = (name: string) => `${import.meta.env.BASE_URL}${name}`;
+const blankPortrait = () => asset("portrait-1.svg");
 
 const formatSigned = (value: number): string => (value > 0 ? `+${value}` : String(value));
 
@@ -49,7 +63,60 @@ const nextPointNumber = (points: { name: string }[], prefix: string): number => 
   return highest + 1;
 };
 const randomWeapon = (): WeaponType => WEAPON_TYPES[Math.floor(Math.random() * WEAPON_TYPES.length)];
-const randomAreaId = (areas: Area[]): string => areas[Math.floor(Math.random() * areas.length)].id;
+
+// Download any JSON-serializable object as a file. Shared by backup and the
+// per-map / per-attire exporters.
+const downloadJson = (data: unknown, filename: string) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+const slug = (text: string): string =>
+  text.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "untitled";
+
+// Spread `count` items across the given cells, one per cell while cells remain,
+// then OVER-PLACE the remainder by stacking into repeated cells. Returns the
+// chosen areaId for each of the `count` items. Cells are shuffled so repeated
+// calls do not always favor the same cells.
+const spreadAcrossCells = (count: number, areaIds: string[]): string[] => {
+  if (areaIds.length === 0) return [];
+  const shuffled = [...areaIds];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return Array.from({ length: count }, (_, index) => shuffled[index % shuffled.length]);
+};
+
+// A press-and-hold button: tap cycles, long-press (~500ms) creates. Used for
+// both "Switch attire" and "Switch loot preset" so the interaction matches.
+function LongPressButton({
+  className,
+  label,
+  onCycle,
+  onCreate,
+  disabled,
+}: {
+  className?: string;
+  label: string;
+  onCycle: () => void;
+  onCreate: () => void;
+  disabled?: boolean;
+}) {
+  const handlers = useLongPress(onCycle, onCreate);
+  return (
+    <button className={className} type="button" disabled={disabled} {...handlers}>
+      {label}
+    </button>
+  );
+}
 
 export default function SetupScreen({ campaign, onChange, onStart, onReset, onOpenSettings, onImport }: SetupScreenProps) {
   const [tool, setTool] = useState<EditTool>("select");
@@ -59,47 +126,44 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
   const [connectFromId, setConnectFromId] = useState("");
   const [imageError, setImageError] = useState("");
   const [textFileError, setTextFileError] = useState("");
-  const [layouts, setLayouts] = useState<LayoutSlot[]>([]);
-  const [layoutName, setLayoutName] = useState("");
-  const [layoutError, setLayoutError] = useState("");
+  const [maps, setMaps] = useState<SavedMap[]>([]);
+  const [mapError, setMapError] = useState("");
+  const [mapStatus, setMapStatus] = useState("");
   const [backupError, setBackupError] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
+  // Per-type counts for the "Add random" menu.
+  const [randomCounts, setRandomCounts] = useState({ weapons: 4, crates: 2, heal: 2, danger: 2 });
   const entries = useMemo(() => parseEntries(campaign.phraseSource), [campaign.phraseSource]);
   const setupPrompt = useMemo(() => buildSetupPrompt(campaign), [campaign]);
   const selectedArea = campaign.areas.find((area) => area.id === selectedAreaId);
   const settings = campaign.settings;
 
-  const refreshLayouts = () => {
-    void listLayouts()
-      .then(setLayouts)
-      .catch(() => setLayoutError("Saved layouts are unavailable in this browser session."));
+  const refreshMaps = () => {
+    void listMaps()
+      .then(setMaps)
+      .catch(() => setMapError("The map library is unavailable in this browser session."));
   };
 
-  // Download the whole backup (current campaign + every saved layout) as a
-  // single JSON file the user can keep or move to another device.
+  useEffect(() => {
+    refreshMaps();
+  }, []);
+
+  // Download the whole backup (current campaign + layouts + map library +
+  // roster) as a single JSON file the user can keep or move to another device.
   const handleExportBackup = async () => {
     setBackupError("");
     setBackupStatus("");
     try {
       const backup = await exportBackup();
-      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const stamp = new Date().toISOString().slice(0, 10);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `battle-royale-backup-${stamp}.json`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      downloadJson(backup, `battle-royale-backup-${new Date().toISOString().slice(0, 10)}.json`);
       setBackupStatus("Backup downloaded.");
     } catch {
       setBackupError("Could not export the backup.");
     }
   };
 
-  // Import a backup file. Replaces the current campaign and merges its saved
-  // layouts, after a confirmation since it overwrites the current campaign.
+  // Import a backup file. Replaces the current campaign and MERGES its layouts,
+  // maps, and roster, after a confirmation since it overwrites the campaign.
   const handleImportBackup = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -112,19 +176,15 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
         setBackupError("That file is not a Battle Royale backup.");
         return;
       }
-      if (!window.confirm("Import this backup? It replaces your current campaign and adds its saved layouts.")) return;
+      if (!window.confirm("Import this backup? It replaces your current campaign and merges its maps, roster, and layouts.")) return;
       const imported = await importBackup(parsed);
       onImport(imported);
-      refreshLayouts();
+      refreshMaps();
       setBackupStatus("Backup imported.");
     } catch {
       setBackupError("Could not read that backup file.");
     }
   };
-
-  useEffect(() => {
-    refreshLayouts();
-  }, []);
 
   const updateAreas = (areas: Area[]) => onChange({ ...campaign, areas });
 
@@ -251,22 +311,57 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
     onChange({ ...campaign, characters: [...campaign.characters, character] });
   };
 
+  // Apply a patch to one character. A `portrait` change is mirrored onto the
+  // active attire's picture; any mutation routes through withActiveAttire so
+  // the derived `portrait` compat field stays in sync with the active attire.
   const updateCharacter = (characterId: string, patch: Partial<Character>) => {
     onChange({
       ...campaign,
       characters: campaign.characters.map((character) => {
         if (character.id !== characterId) return character;
         const next = { ...character, ...patch };
-        // When a new portrait is set, mirror it onto the active attire so the
-        // derived `portrait` field and the active attire stay in sync.
         if (patch.portrait !== undefined) {
           next.attires = next.attires.map((attire) =>
             attire.id === next.activeAttireId ? { ...attire, picture: patch.portrait as string } : attire,
           );
         }
-        return next;
+        return withActiveAttire(next);
       }),
     });
+  };
+
+  // Replace a character wholesale (used by the attire helpers which already
+  // produce a fully-formed character with portrait synced).
+  const replaceCharacter = (characterId: string, next: Character) => {
+    onChange({
+      ...campaign,
+      characters: campaign.characters.map((character) => (character.id === characterId ? next : character)),
+    });
+  };
+
+  // --- Attire cycling -------------------------------------------------------
+  const cycleAttire = (character: Character) => {
+    if (character.attires.length < 2) return;
+    const index = character.attires.findIndex((attire) => attire.id === character.activeAttireId);
+    const nextAttire = character.attires[(index + 1) % character.attires.length];
+    replaceCharacter(character.id, withActiveAttire({ ...character, activeAttireId: nextAttire.id }));
+  };
+
+  // Long-press "Switch attire": add a NEW blank attire (empty text, placeholder
+  // picture) and make it active.
+  const addAttire = (character: Character) => {
+    const attire = createAttire(blankPortrait(), "");
+    replaceCharacter(
+      character.id,
+      withActiveAttire({ ...character, attires: [...character.attires, attire], activeAttireId: attire.id }),
+    );
+  };
+
+  const updateActiveAttireText = (character: Character, text: string) => {
+    const attires = character.attires.map((attire) =>
+      attire.id === character.activeAttireId ? { ...attire, text } : attire,
+    );
+    replaceCharacter(character.id, withActiveAttire({ ...character, attires }));
   };
 
   const uploadPortrait = async (characterId: string, event: ChangeEvent<HTMLInputElement>) => {
@@ -285,7 +380,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
 
   // Paste a portrait from the clipboard. Falls back to a clear message if the
   // browser cannot read clipboard images (e.g. Safari/iOS) so the user can use
-  // Upload portrait instead.
+  // Upload portrait instead. Writes to the active attire via updateCharacter.
   const pastePortrait = async (characterId: string) => {
     try {
       if (!navigator.clipboard || typeof navigator.clipboard.read !== "function") {
@@ -316,6 +411,40 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
     const character = campaign.characters.find((candidate) => candidate.id === characterId);
     if (!character || !window.confirm(`Remove ${character.name}?`)) return;
     onChange({ ...campaign, characters: campaign.characters.filter((candidate) => candidate.id !== characterId) });
+  };
+
+  // --- Per-attire export / import ------------------------------------------
+  const exportAttire = (character: Character) => {
+    const attire = activeAttire(character);
+    if (!attire) return;
+    downloadJson(
+      { format: "battle-royale-attire", version: 1, attire },
+      `attire-${slug(character.name)}.json`,
+    );
+  };
+
+  const importAttireFor = async (characterId: string, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isAttireFile(parsed)) {
+        setImageError("That file is not a Battle Royale attire.");
+        return;
+      }
+      const character = campaign.characters.find((candidate) => candidate.id === characterId);
+      if (!character) return;
+      // Add as a NEW attire (fresh id) made active.
+      const attire: Attire = { ...parsed.attire, id: crypto.randomUUID() };
+      setImageError("");
+      replaceCharacter(
+        character.id,
+        withActiveAttire({ ...character, attires: [...character.attires, attire], activeAttireId: attire.id }),
+      );
+    } catch {
+      setImageError("Could not read that attire file.");
+    }
   };
 
   // --- Map item placement ---------------------------------------------------
@@ -376,119 +505,292 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
 
   const areaName = (areaId: string) => campaign.areas.find((area) => area.id === areaId)?.name ?? "Unknown cell";
 
-  const randomizeItems = () => {
+  // --- Random menu (ADD semantics) -----------------------------------------
+  // Add scatters the requested count of EACH type, placing same-type items in
+  // separate cells where possible and over-placing (stacking) the remainder
+  // when the count exceeds the number of cells. Different types may share a
+  // cell. Items are APPENDED to what is already placed.
+  const addRandomItems = () => {
     if (campaign.areas.length === 0) return;
-    if (!window.confirm("Scatter random weapons, crates, healing points, and danger points across the map? This replaces current placements.")) return;
-    const cellCount = campaign.areas.length;
-    const weaponCount = Math.max(1, Math.round(cellCount / 2));
-    const crateCount = Math.max(1, Math.round(cellCount / 3));
-    const healCount = Math.max(1, Math.round(cellCount / 4));
-    const dangerCount = Math.max(1, Math.round(cellCount / 4));
-    const weapons: MapWeapon[] = Array.from({ length: weaponCount }, () => ({
+    const areaIds = campaign.areas.map((area) => area.id);
+    const weaponCells = spreadAcrossCells(Math.max(0, randomCounts.weapons), areaIds);
+    const crateCells = spreadAcrossCells(Math.max(0, randomCounts.crates), areaIds);
+    const healCells = spreadAcrossCells(Math.max(0, randomCounts.heal), areaIds);
+    const dangerCells = spreadAcrossCells(Math.max(0, randomCounts.danger), areaIds);
+
+    const weapons: MapWeapon[] = weaponCells.map((areaId) => ({
       id: crypto.randomUUID(),
-      areaId: randomAreaId(campaign.areas),
+      areaId,
       weapon: randomWeapon(),
     }));
-    const crates: Crate[] = Array.from({ length: crateCount }, () => ({
+    const crates: Crate[] = crateCells.map((areaId) => ({
       id: crypto.randomUUID(),
-      areaId: randomAreaId(campaign.areas),
+      areaId,
       weapon: randomWeapon(),
       opened: false,
     }));
-    const healingPoints: HealingPoint[] = Array.from({ length: healCount }, (_, index) => ({
+    let healNumber = nextPointNumber(campaign.healingPoints, "Healing Point");
+    const healingPoints: HealingPoint[] = healCells.map((areaId) => ({
       id: crypto.randomUUID(),
-      areaId: randomAreaId(campaign.areas),
-      name: `Healing Point ${index + 1}`,
+      areaId,
+      name: `Healing Point ${healNumber++}`,
       healAmount: settings.healAmount,
       chance: settings.healChance,
       cooldownRounds: settings.healCooldownRounds,
       cooldownRemaining: 0,
     }));
-    const dangerPoints: DangerPoint[] = Array.from({ length: dangerCount }, (_, index) => ({
+    let dangerNumber = nextPointNumber(campaign.dangerPoints, "Danger Point");
+    const dangerPoints: DangerPoint[] = dangerCells.map((areaId) => ({
       id: crypto.randomUUID(),
-      areaId: randomAreaId(campaign.areas),
-      name: `Danger Point ${index + 1}`,
+      areaId,
+      name: `Danger Point ${dangerNumber++}`,
       minDamage: settings.dangerMinDamage,
       maxDamage: settings.dangerMaxDamage,
       avoidChance: settings.dangerAvoidChance,
     }));
-    onChange({ ...campaign, weapons, crates, healingPoints, dangerPoints });
-  };
 
-  // --- Layout slots ---------------------------------------------------------
-  const handleSaveLayout = async () => {
-    const name = layoutName.trim();
-    if (!name) {
-      setLayoutError("Name the layout before saving.");
-      return;
-    }
-    const slot: LayoutSlot = {
-      id: crypto.randomUUID(),
-      name,
-      savedAt: Date.now(),
-      data: {
-        name: campaign.name,
-        mapImage: campaign.mapImage,
-        areas: campaign.areas,
-        // Dead-body images are runtime state, not part of a reusable layout.
-        characters: campaign.characters.map(({ deadBodyImage: _deadBodyImage, ...rest }) => rest),
-        phraseSource: campaign.phraseSource,
-        weapons: campaign.weapons,
-        crates: campaign.crates,
-        healingPoints: campaign.healingPoints,
-        dangerPoints: campaign.dangerPoints,
-      },
-    };
-    try {
-      await saveLayout(slot);
-      setLayoutName("");
-      setLayoutError("");
-      refreshLayouts();
-    } catch {
-      setLayoutError("The layout could not be saved locally.");
-    }
-  };
-
-  const loadLayout = (slot: LayoutSlot) => {
-    if (!window.confirm(`Load "${slot.name}"? This replaces the current map, cells, characters, and placed items. Settings are kept.`)) return;
-    const { data } = slot;
     onChange({
       ...campaign,
-      name: data.name,
-      mapImage: data.mapImage,
-      areas: data.areas,
-      characters: data.characters,
-      phraseSource: data.phraseSource,
-      weapons: data.weapons,
-      crates: data.crates,
-      healingPoints: data.healingPoints,
-      dangerPoints: data.dangerPoints,
-      screen: "setup",
-      game: emptyGameState(),
+      weapons: [...campaign.weapons, ...weapons],
+      crates: [...campaign.crates, ...crates],
+      healingPoints: [...campaign.healingPoints, ...healingPoints],
+      dangerPoints: [...campaign.dangerPoints, ...dangerPoints],
     });
-    setSelectedAreaId(data.areas[0]?.id ?? "");
   };
 
-  const removeLayout = async (slot: LayoutSlot) => {
-    if (!window.confirm(`Delete layout "${slot.name}"?`)) return;
+  const clearItems = () => {
+    if (!window.confirm("Remove every placed weapon, crate, healing point, and danger point?")) return;
+    onChange({ ...campaign, weapons: [], crates: [], healingPoints: [], dangerPoints: [] });
+  };
+
+  // Spread the PARTICIPATING (non-sit-out) characters across separate cells,
+  // over-placing when there are more characters than cells. Sets both
+  // startAreaId and areaId so the setup preview and the game start match.
+  const randomizePositions = () => {
+    if (campaign.areas.length === 0) return;
+    const areaIds = campaign.areas.map((area) => area.id);
+    const participating = campaign.characters.filter((character) => !character.sitOut);
+    const cells = spreadAcrossCells(participating.length, areaIds);
+    let cellIndex = 0;
+    const characters = campaign.characters.map((character) => {
+      if (character.sitOut) return character;
+      const areaId = cells[cellIndex++] ?? character.startAreaId;
+      return { ...character, startAreaId: areaId, areaId };
+    });
+    onChange({ ...campaign, characters });
+  };
+
+  // --- Map library ----------------------------------------------------------
+  // Save the live board (image, areas/connections, and the active loot as the
+  // active preset) back into the active SavedMap, or create a new library entry
+  // when no map is active yet.
+  const liveLootPreset = (presetId: string, name?: string): LootPreset => ({
+    id: presetId,
+    name,
+    weapons: campaign.weapons,
+    crates: campaign.crates,
+    healingPoints: campaign.healingPoints,
+    dangerPoints: campaign.dangerPoints,
+  });
+
+  const handleSaveMap = async () => {
+    setMapError("");
+    setMapStatus("");
+    const existing = campaign.activeMapId ? maps.find((map) => map.id === campaign.activeMapId) : undefined;
     try {
-      await deleteLayout(slot.id);
-      refreshLayouts();
+      let saved: SavedMap;
+      if (existing) {
+        // Write the live board back, updating only the active loot preset so the
+        // other presets in this map are preserved.
+        const activeId = existing.activeLootPresetId;
+        const presets = existing.lootPresets.map((preset) =>
+          preset.id === activeId ? liveLootPreset(activeId, preset.name) : preset,
+        );
+        saved = {
+          ...existing,
+          name: campaign.name,
+          savedAt: Date.now(),
+          mapImage: campaign.mapImage,
+          areas: campaign.areas,
+          lootPresets: presets.length > 0 ? presets : [liveLootPreset(crypto.randomUUID(), "Loot 1")],
+        };
+      } else {
+        const preset = liveLootPreset(crypto.randomUUID(), "Loot 1");
+        saved = {
+          id: crypto.randomUUID(),
+          name: campaign.name,
+          savedAt: Date.now(),
+          mapImage: campaign.mapImage,
+          areas: campaign.areas,
+          lootPresets: [preset],
+          activeLootPresetId: preset.id,
+        };
+      }
+      await saveMap(saved);
+      onChange({ ...campaign, activeMapId: saved.id });
+      refreshMaps();
+      setMapStatus(existing ? "Map updated in the library." : "Map saved to the library.");
     } catch {
-      setLayoutError("The layout could not be deleted.");
+      setMapError("The map could not be saved locally.");
     }
   };
 
-  const setupCharacters = campaign.characters.map((character) => ({
-    ...character,
-    areaId: character.startAreaId,
-    status: "active" as const,
-  }));
+  // Create a fresh blank map made active: a single empty cell, no loot, and a
+  // clean live board. Characters, story words, and settings are untouched.
+  const handleNewMap = () => {
+    if (!window.confirm("Create a new blank map? This clears the current cells and placed loot in the live board (saved maps are untouched).")) return;
+    const area: Area = { id: crypto.randomUUID(), name: "Area 1", x: 0.5, y: 0.5, radius: 0.055, neighborIds: [] };
+    const characters = campaign.characters.map((character) => ({
+      ...character,
+      startAreaId: area.id,
+      areaId: area.id,
+    }));
+    onChange({
+      ...campaign,
+      mapImage: asset("placeholder-map.svg"),
+      areas: [area],
+      characters,
+      weapons: [],
+      crates: [],
+      healingPoints: [],
+      dangerPoints: [],
+      activeMapId: undefined,
+    });
+    setSelectedAreaId(area.id);
+    setMapStatus("New blank map ready. Use Save map to add it to the library.");
+  };
+
+  // Project a saved map (its image, areas, and active loot preset) into the live
+  // board and mark it active. The live weapons/crates/points become that
+  // preset's contents.
+  const switchToMap = (map: SavedMap) => {
+    if (!window.confirm(`Switch to "${map.name}"? This replaces the current cells, connections, and placed loot in the live board.`)) return;
+    const preset =
+      map.lootPresets.find((candidate) => candidate.id === map.activeLootPresetId) ?? map.lootPresets[0];
+    const fallbackAreaId = map.areas[0]?.id ?? "";
+    const characters = campaign.characters.map((character) =>
+      map.areas.some((area) => area.id === character.startAreaId)
+        ? character
+        : { ...character, startAreaId: fallbackAreaId, areaId: fallbackAreaId },
+    );
+    onChange({
+      ...campaign,
+      mapImage: map.mapImage,
+      areas: map.areas,
+      characters,
+      weapons: preset?.weapons ?? [],
+      crates: preset?.crates ?? [],
+      healingPoints: preset?.healingPoints ?? [],
+      dangerPoints: preset?.dangerPoints ?? [],
+      activeMapId: map.id,
+    });
+    setSelectedAreaId(fallbackAreaId);
+    setMapStatus(`Switched to "${map.name}".`);
+  };
+
+  const removeMap = async (map: SavedMap) => {
+    if (!window.confirm(`Delete map "${map.name}" from the library?`)) return;
+    try {
+      await deleteMap(map.id);
+      if (campaign.activeMapId === map.id) onChange({ ...campaign, activeMapId: undefined });
+      refreshMaps();
+    } catch {
+      setMapError("The map could not be deleted.");
+    }
+  };
+
+  // --- Cycleable loot presets within the active map -------------------------
+  // The active map's presets, kept in the library; the live board is a working
+  // copy of whichever preset is active. Cycling/creating writes the live board
+  // into the current preset first so edits are not lost.
+  const activeMap = campaign.activeMapId ? maps.find((map) => map.id === campaign.activeMapId) : undefined;
+
+  // Persist the live board into the active map under `nextActivePresetId`,
+  // leaving `presets` as the full preset list, then project that preset into the
+  // live board. Used by both cycle and create.
+  const applyPresetChange = async (map: SavedMap, presets: LootPreset[], nextActivePresetId: string) => {
+    // First fold the current live board back into the currently-active preset.
+    const currentId = map.activeLootPresetId;
+    const foldedPresets = presets.map((preset) =>
+      preset.id === currentId ? liveLootPreset(currentId, preset.name) : preset,
+    );
+    const target = foldedPresets.find((preset) => preset.id === nextActivePresetId);
+    const saved: SavedMap = { ...map, savedAt: Date.now(), activeLootPresetId: nextActivePresetId, lootPresets: foldedPresets };
+    try {
+      await saveMap(saved);
+      refreshMaps();
+    } catch {
+      setMapError("The loot preset could not be saved locally.");
+    }
+    onChange({
+      ...campaign,
+      weapons: target?.weapons ?? [],
+      crates: target?.crates ?? [],
+      healingPoints: target?.healingPoints ?? [],
+      dangerPoints: target?.dangerPoints ?? [],
+    });
+  };
+
+  const cycleLootPreset = () => {
+    if (!activeMap || activeMap.lootPresets.length < 2) return;
+    const index = activeMap.lootPresets.findIndex((preset) => preset.id === activeMap.activeLootPresetId);
+    const nextPreset = activeMap.lootPresets[(index + 1) % activeMap.lootPresets.length];
+    void applyPresetChange(activeMap, activeMap.lootPresets, nextPreset.id);
+    setMapStatus(`Loot preset: ${nextPreset.name ?? "Unnamed"}.`);
+  };
+
+  const addLootPreset = () => {
+    if (!activeMap) return;
+    const blank: LootPreset = {
+      id: crypto.randomUUID(),
+      name: `Loot ${activeMap.lootPresets.length + 1}`,
+      weapons: [],
+      crates: [],
+      healingPoints: [],
+      dangerPoints: [],
+    };
+    void applyPresetChange(activeMap, [...activeMap.lootPresets, blank], blank.id);
+    setMapStatus(`New blank loot preset: ${blank.name}.`);
+  };
+
+  // --- Per-map export / import ----------------------------------------------
+  const exportMap = (map: SavedMap) => {
+    downloadJson({ format: "battle-royale-map", version: 1, map }, `map-${slug(map.name)}.json`);
+  };
+
+  const handleImportMap = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setMapError("");
+    setMapStatus("");
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isMapFile(parsed)) {
+        setMapError("That file is not a Battle Royale map.");
+        return;
+      }
+      await importMap(parsed);
+      refreshMaps();
+      setMapStatus("Map imported into the library.");
+    } catch {
+      setMapError("Could not read that map file.");
+    }
+  };
+
+  const setupCharacters = campaign.characters
+    .filter((character) => !character.sitOut)
+    .map((character) => ({
+      ...character,
+      areaId: character.startAreaId,
+      status: "active" as const,
+    }));
   const connectedAreaCount = campaign.areas.filter((area) => area.neighborIds.length > 0).length;
+  const participatingCount = campaign.characters.filter((character) => !character.sitOut).length;
   const canStart = campaign.areas.length >= 2
     && connectedAreaCount === campaign.areas.length
-    && campaign.characters.length >= 2
-    && campaign.characters.every((character) => character.name.trim() && character.startAreaId)
+    && participatingCount >= 2
+    && campaign.characters.every((character) => character.sitOut || (character.name.trim() && character.startAreaId))
     && entries.length >= 8;
 
   const totalItems = campaign.weapons.length + campaign.crates.length + campaign.healingPoints.length + campaign.dangerPoints.length;
@@ -575,68 +877,118 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
 
       <section className="panel setup-section">
         <div className="section-heading">
-          <div><span className="step-number">03</span><h2>Characters</h2></div>
+          <div><span className="step-number">03</span><h2>Characters and attires</h2></div>
           <button className="secondary-button" onClick={addCharacter}>Add character</button>
         </div>
+        <p className="helper-text">Switch attire cycles a character's outfits; press and hold it to add a new blank attire. The attire text is announced at the start of the game (round 0). Upload or paste a portrait to set the active attire's picture. Tick Sit out to keep a character in the roster but out of the next game.</p>
         <div className="character-grid">
-          {campaign.characters.map((character) => (
-            <article className="character-card" key={character.id}>
-              <div className="portrait-wrap"><img src={character.portrait} alt={`${character.name} portrait`} /></div>
-              <div className="character-fields">
-                <label className="field"><span>Name</span><input value={character.name} onChange={(event) => updateCharacter(character.id, { name: event.target.value })} /></label>
-                <label className="field">
-                  <span>Starting cell</span>
-                  <select value={character.startAreaId} onChange={(event) => updateCharacter(character.id, { startAreaId: event.target.value, areaId: event.target.value })}>
-                    <option value="">Choose a cell</option>
-                    {campaign.areas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Combat weapon</span>
-                  <select
-                    value={character.weapon ?? ""}
-                    onChange={(event) => updateCharacter(character.id, { weapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
-                  >
-                    <option value="">None</option>
-                    {COMBAT_WEAPONS.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Ranged weapon</span>
-                  <select
-                    value={character.rangedWeapon ?? ""}
-                    onChange={(event) => updateCharacter(character.id, { rangedWeapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
-                  >
-                    <option value="">None</option>
-                    {RANGED_WEAPONS.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
-                  </select>
-                </label>
-                <div className="character-rule-row">
-                  <span className="starting-power">Starts at <strong>{settings.startingPower} power</strong></span>
-                  <label className="invulnerable-toggle">
-                    <input
-                      type="checkbox"
-                      checked={character.invulnerable}
-                      onChange={(event) => updateCharacter(character.id, { invulnerable: event.target.checked })}
+          {campaign.characters.map((character) => {
+            const attire = activeAttire(character);
+            const attireIndex = character.attires.findIndex((candidate) => candidate.id === character.activeAttireId);
+            return (
+              <article className={`character-card${character.sitOut ? " is-sitting-out" : ""}`} key={character.id}>
+                <div className="portrait-wrap"><img src={character.portrait} alt={`${character.name} portrait`} /></div>
+                <div className="character-fields">
+                  <label className="field"><span>Name</span><input value={character.name} onChange={(event) => updateCharacter(character.id, { name: event.target.value })} /></label>
+                  <div className="attire-row">
+                    <LongPressButton
+                      className="secondary-button attire-switch"
+                      label={`Switch attire (${attireIndex + 1}/${character.attires.length})`}
+                      onCycle={() => cycleAttire(character)}
+                      onCreate={() => addAttire(character)}
                     />
-                    Invulnerable
+                    <span className="attire-hint">Hold to add new</span>
+                  </div>
+                  <label className="field">
+                    <span>Attire text (round 0)</span>
+                    <input
+                      value={attire?.text ?? ""}
+                      placeholder="e.g. a tattered crimson cloak"
+                      onChange={(event) => updateActiveAttireText(character, event.target.value)}
+                    />
                   </label>
+                  <label className="field">
+                    <span>Starting cell</span>
+                    <select value={character.startAreaId} onChange={(event) => updateCharacter(character.id, { startAreaId: event.target.value, areaId: event.target.value })}>
+                      <option value="">Choose a cell</option>
+                      {campaign.areas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Combat weapon</span>
+                    <select
+                      value={character.weapon ?? ""}
+                      onChange={(event) => updateCharacter(character.id, { weapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
+                    >
+                      <option value="">None</option>
+                      {COMBAT_WEAPONS.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Ranged weapon</span>
+                    <select
+                      value={character.rangedWeapon ?? ""}
+                      onChange={(event) => updateCharacter(character.id, { rangedWeapon: event.target.value ? (event.target.value as WeaponType) : undefined })}
+                    >
+                      <option value="">None</option>
+                      {RANGED_WEAPONS.map((weapon) => <option value={weapon} key={weapon}>{WEAPON_NAMES[weapon]}</option>)}
+                    </select>
+                  </label>
+                  <div className="character-rule-row">
+                    <span className="starting-power">Starts at <strong>{settings.startingPower} power</strong></span>
+                    <label className="invulnerable-toggle">
+                      <input
+                        type="checkbox"
+                        checked={character.invulnerable}
+                        onChange={(event) => updateCharacter(character.id, { invulnerable: event.target.checked })}
+                      />
+                      Invulnerable
+                    </label>
+                    <label className="invulnerable-toggle sit-out-toggle">
+                      <input
+                        type="checkbox"
+                        checked={character.sitOut}
+                        onChange={(event) => updateCharacter(character.id, { sitOut: event.target.checked })}
+                      />
+                      Sit out
+                    </label>
+                  </div>
+                  <div className="character-actions">
+                    <label className="text-button">Upload portrait<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void uploadPortrait(character.id, event)} /></label>
+                    <button className="text-button" onClick={() => void pastePortrait(character.id)}>Paste</button>
+                    <button className="text-button" onClick={() => exportAttire(character)}>Export attire</button>
+                    <label className="text-button">Import attire<input type="file" accept="application/json,.json" onChange={(event) => void importAttireFor(character.id, event)} /></label>
+                    <button className="text-button danger-text" onClick={() => removeCharacter(character.id)}>Remove</button>
+                  </div>
                 </div>
-                <div className="character-actions">
-                  <label className="text-button">Upload portrait<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void uploadPortrait(character.id, event)} /></label>
-                  <button className="text-button" onClick={() => void pastePortrait(character.id)}>Paste</button>
-                  <button className="text-button danger-text" onClick={() => removeCharacter(character.id)}>Remove</button>
-                </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
 
       <section className="panel setup-section">
         <div className="section-heading">
+          <div><span className="step-number">04</span><h2>Story words and phrases</h2></div>
+          <div className="section-actions">
+            <span className={`entry-count${entries.length < 8 ? " is-low" : ""}`}>{entries.length} entries</span>
+            <label className="upload-button">Upload .txt<input type="file" accept=".txt,text/plain" onChange={(event) => void handleTextUpload(event)} /></label>
+          </div>
+        </div>
+        <p className="helper-text">Paste below or upload a text file. Separate each word or phrase with a semicolon. Conflict text uses up to 12, with a minimum requirement of 8.</p>
+        {textFileError && <p className="error-message" role="alert">{textFileError}</p>}
+        <textarea
+          className="phrase-input"
+          value={campaign.phraseSource}
+          onChange={(event) => onChange({ ...campaign, phraseSource: event.target.value })}
+          rows={6}
+          spellCheck="true"
+        />
+      </section>
+
+      <section className="panel setup-section">
+        <div className="section-heading">
           <div><span className="step-number">05</span><h2>Weapons, crates, and points</h2></div>
-          <button className="secondary-button" onClick={randomizeItems}>Randomize</button>
         </div>
         <p className="helper-text">Choose an item, pick a cell, and add it. Weapon power bonuses are set in Settings and stay hidden on the map.</p>
         <div className="placement-controls">
@@ -661,6 +1013,22 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
             </label>
           )}
           <button className="primary-button" disabled={!selectedAreaId} onClick={() => placeItem(selectedAreaId)}>Add to cell</button>
+        </div>
+
+        <div className="random-menu">
+          <h3>Add random loot</h3>
+          <p className="helper-text">Adds (appends) the chosen number of each type, placing same-type items in separate cells where possible and stacking the rest when a count is larger than the number of cells. Different types may share a cell.</p>
+          <div className="random-menu-grid">
+            <NumberField label="Weapons" value={randomCounts.weapons} min={0} onChange={(value) => setRandomCounts((prev) => ({ ...prev, weapons: value }))} />
+            <NumberField label="Crates" value={randomCounts.crates} min={0} onChange={(value) => setRandomCounts((prev) => ({ ...prev, crates: value }))} />
+            <NumberField label="Healing points" value={randomCounts.heal} min={0} onChange={(value) => setRandomCounts((prev) => ({ ...prev, heal: value }))} />
+            <NumberField label="Danger points" value={randomCounts.danger} min={0} onChange={(value) => setRandomCounts((prev) => ({ ...prev, danger: value }))} />
+          </div>
+          <div className="random-menu-actions">
+            <button className="secondary-button" disabled={campaign.areas.length === 0} onClick={addRandomItems}>Add random</button>
+            <button className="secondary-button" disabled={campaign.areas.length === 0} onClick={randomizePositions}>Randomize character positions</button>
+            {totalItems > 0 && <button className="text-button danger-text" onClick={clearItems}>Clear all placed items</button>}
+          </div>
         </div>
 
         {totalItems === 0 ? (
@@ -733,49 +1101,54 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
 
       <section className="panel setup-section">
         <div className="section-heading">
-          <div><span className="step-number">04</span><h2>Story words and phrases</h2></div>
+          <div><span className="step-number">06</span><h2>Map library</h2></div>
           <div className="section-actions">
-            <span className={`entry-count${entries.length < 8 ? " is-low" : ""}`}>{entries.length} entries</span>
-            <label className="upload-button">Upload .txt<input type="file" accept=".txt,text/plain" onChange={(event) => void handleTextUpload(event)} /></label>
+            <button className="secondary-button" onClick={() => void handleSaveMap()}>Save map</button>
+            <button className="secondary-button" onClick={handleNewMap}>New map</button>
+            <label className="upload-button">Import map<input type="file" accept="application/json,.json" onChange={(event) => void handleImportMap(event)} /></label>
           </div>
         </div>
-        <p className="helper-text">Paste below or upload a text file. Separate each word or phrase with a semicolon. Conflict text uses up to 12, with a minimum requirement of 8.</p>
-        {textFileError && <p className="error-message" role="alert">{textFileError}</p>}
-        <textarea
-          className="phrase-input"
-          value={campaign.phraseSource}
-          onChange={(event) => onChange({ ...campaign, phraseSource: event.target.value })}
-          rows={6}
-          spellCheck="true"
-        />
-      </section>
+        <p className="helper-text">Save the current map, its cells and connections, and the active loot as a reusable map. Each map keeps its own cycleable loot presets. Saved maps carry across setups and are not erased by starting a new game, restoring placeholders, or importing a backup.</p>
+        {mapError && <p className="error-message" role="alert">{mapError}</p>}
+        {mapStatus && <p className="success-message" role="status">{mapStatus}</p>}
 
-      <section className="panel setup-section">
-        <div className="section-heading">
-          <div><span className="step-number">06</span><h2>Saved layouts</h2></div>
-        </div>
-        <p className="helper-text">Save the current map, cells, characters, and placed items as a named layout. Loading a layout keeps your Settings untouched.</p>
-        {layoutError && <p className="error-message" role="alert">{layoutError}</p>}
-        <div className="layout-save-row">
-          <label className="field">
-            <span>Layout name</span>
-            <input value={layoutName} onChange={(event) => setLayoutName(event.target.value)} placeholder="e.g. Forest skirmish" />
-          </label>
-          <button className="secondary-button" onClick={() => void handleSaveLayout()}>Save current setup</button>
-        </div>
-        {layouts.length === 0 ? (
-          <p className="helper-text">No saved layouts yet.</p>
+        {activeMap && (
+          <div className="loot-switcher">
+            <div className="loot-switcher-meta">
+              <strong>Active map: {activeMap.name}</strong>
+              <span>
+                Loot preset {Math.max(1, activeMap.lootPresets.findIndex((preset) => preset.id === activeMap.activeLootPresetId) + 1)}
+                {" / "}{activeMap.lootPresets.length}
+                {activeMap.lootPresets.find((preset) => preset.id === activeMap.activeLootPresetId)?.name
+                  ? ` · ${activeMap.lootPresets.find((preset) => preset.id === activeMap.activeLootPresetId)?.name}`
+                  : ""}
+              </span>
+            </div>
+            <LongPressButton
+              className="secondary-button"
+              label="Switch loot preset"
+              onCycle={cycleLootPreset}
+              onCreate={addLootPreset}
+              disabled={activeMap.lootPresets.length < 1}
+            />
+            <span className="attire-hint">Hold to add a blank preset</span>
+          </div>
+        )}
+
+        {maps.length === 0 ? (
+          <p className="helper-text">No saved maps yet. Use Save map to add the current board.</p>
         ) : (
           <div className="layout-list">
-            {layouts.map((slot) => (
-              <div className="layout-row" key={slot.id}>
+            {maps.map((map) => (
+              <div className={`layout-row${map.id === campaign.activeMapId ? " is-active-map" : ""}`} key={map.id}>
                 <div className="layout-meta">
-                  <strong>{slot.name}</strong>
-                  <span>{new Date(slot.savedAt).toLocaleString()}</span>
+                  <strong>{map.name}{map.id === campaign.activeMapId ? " (active)" : ""}</strong>
+                  <span>{map.areas.length} cells · {map.lootPresets.length} loot preset{map.lootPresets.length === 1 ? "" : "s"} · {new Date(map.savedAt).toLocaleString()}</span>
                 </div>
                 <div className="layout-actions">
-                  <button className="secondary-button" onClick={() => loadLayout(slot)}>Load</button>
-                  <button className="text-button danger-text" onClick={() => void removeLayout(slot)}>Delete</button>
+                  <button className="secondary-button" onClick={() => switchToMap(map)}>Switch to</button>
+                  <button className="text-button" onClick={() => exportMap(map)}>Export</button>
+                  <button className="text-button danger-text" onClick={() => void removeMap(map)}>Delete</button>
                 </div>
               </div>
             ))}
@@ -787,7 +1160,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
         <div className="section-heading">
           <div><span className="step-number">07</span><h2>Backup and restore</h2></div>
         </div>
-        <p className="helper-text">Everything is stored only in this browser. Export a backup file to keep it safe or move it to another device; importing replaces your current campaign and adds its saved layouts.</p>
+        <p className="helper-text">Everything is stored only in this browser. Export a whole-gamestate backup (campaign, map library, and roster) to keep it safe or move it to another device; importing replaces your current campaign and merges its maps and roster. Per-map and per-attire export/import live on the map library and character cards above.</p>
         {backupError && <p className="error-message" role="alert">{backupError}</p>}
         {backupStatus && <p className="success-message" role="status">{backupStatus}</p>}
         <div className="backup-actions">
@@ -815,7 +1188,7 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
             {Math.round(settings.stayChance * 100)}% stay · nearby movement · power changes by{" "}
             {formatSigned(settings.powerChangeMin)} to {formatSigned(settings.powerChangeMax)}
           </h2>
-          {!canStart && <p className="validation-message">To start: add at least 2 characters, 2 cells, a route for every cell, starting positions, and 8 text entries.</p>}
+          {!canStart && <p className="validation-message">To start: add at least 2 participating characters, 2 cells, a route for every cell, starting positions, and 8 text entries.</p>}
         </div>
         <button className="primary-button launch-button" disabled={!canStart} onClick={onStart}>Start battle</button>
       </section>

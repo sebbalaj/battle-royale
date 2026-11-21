@@ -331,3 +331,27 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .cell-viewer-stage { position: relative; z-index: 1; width: 100%; height: 100%; display: grid; place-items: center; touch-action: none; user-select: none; -webkit-user-select: none; }
 .cell-viewer-image { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
 .cell-viewer-image.is-defeated { filter: grayscale(1); opacity: .52; }
+
+/* --- Attire controls, sit-out, map library, loot presets, random menu --- */
+.attire-row { display: flex; align-items: center; gap: 10px; }
+.attire-switch { padding: 8px 12px; font-size: .78rem; }
+.attire-hint { color: var(--muted); font-size: .68rem; }
+.sit-out-toggle { color: #d8b59c; }
+.sit-out-toggle input { accent-color: #c88d64; }
+/* A character sitting out the next game is greyed in setup but still editable. */
+.character-card.is-sitting-out { opacity: .55; border-style: dashed; }
+.character-card.is-sitting-out .portrait-wrap img { filter: grayscale(1); }
+
+.character-actions { flex-wrap: wrap; justify-content: flex-start; gap: 14px; }
+
+.random-menu { margin: 4px 0 18px; border: 1px solid var(--line); border-radius: 13px; background: #1a1915; padding: 16px 18px; }
+.random-menu h3 { margin-bottom: 6px; color: var(--gold); font-family: "Newsreader", Georgia, serif; font-size: 1.05rem; }
+.random-menu .helper-text { margin: 0 0 14px; }
+.random-menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.random-menu-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+
+.loot-switcher { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; background: #1a1915; padding: 12px 14px; }
+.loot-switcher-meta { display: grid; gap: 3px; margin-right: auto; }
+.loot-switcher-meta strong { font-size: .9rem; }
+.loot-switcher-meta span { color: var(--muted); font-size: .72rem; }
+.layout-row.is-active-map { border-color: rgba(214, 189, 130, .5); background: #231f17; }

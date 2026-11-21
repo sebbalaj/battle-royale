@@ -4,7 +4,7 @@ import SettingsScreen from "./components/SettingsScreen";
 import SetupScreen from "./components/SetupScreen";
 import { createDefaultCampaign, createDefaultSavedMap, emptyGameState, migrateCampaign } from "./data";
 import { buildRoundZeroIntro, revealOutcomes, runGeneratedConflict, runRound } from "./game";
-import { listMaps, loadCampaign, saveCampaign, saveMap } from "./storage";
+import { listMaps, listRosterCharacters, loadCampaign, saveCampaign, saveMap, saveRosterCharacter } from "./storage";
 import type { Campaign } from "./types";
 
 export default function App() {
@@ -25,6 +25,12 @@ export default function App() {
           if (maps.length === 0 && loaded.activeMapId) {
             await saveMap(createDefaultSavedMap(loaded, loaded.activeMapId));
           }
+          // Seed the persistent roster from the live characters on first run so
+          // the 'characters' store becomes the durable source going forward.
+          const roster = await listRosterCharacters();
+          if (roster.length === 0) {
+            await Promise.all(loaded.characters.map((character) => saveRosterCharacter(character)));
+          }
         } catch {
           // Seeding is best-effort; a storage failure is surfaced by autosave.
         }
@@ -43,6 +49,13 @@ export default function App() {
     if (!campaign || !hasLoaded.current) return;
     const timeout = window.setTimeout(() => {
       void saveCampaign(campaign).catch(() => setStorageError("Changes could not be saved locally."));
+      // Mirror the working copy into the persistent roster so edits to names,
+      // attires, weapons, sit-out, etc. survive resets/new-game/import. The
+      // roster store is only added to (put), never wiped, so sitting-out and
+      // past characters are retained even while a game is running.
+      void Promise.all(campaign.characters.map((character) => saveRosterCharacter(character))).catch(() => {
+        /* roster sync is best-effort; the campaign autosave is authoritative. */
+      });
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [campaign]);
