@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import type { Area, Character, Crate, DangerPoint, HealingPoint, MapWeapon, SniperShot } from "../types";
 import { WEAPON_GLYPHS, WEAPON_NAMES } from "../weapons";
 
@@ -19,6 +19,8 @@ type MapBoardProps = {
   onAreaClick?: (areaId: string) => void;
   // Play-mode only: fired when a cell is tapped, to open the cell viewer.
   onAreaHold?: (areaId: string) => void;
+  // Multiplier for character portrait size on the map (default 1).
+  characterScale?: number;
 };
 
 // Build the combat + ranged glyph list for a character's held weapons.
@@ -45,6 +47,7 @@ export default function MapBoard({
   onPlace,
   onAreaClick,
   onAreaHold,
+  characterScale = 1,
 }: MapBoardProps) {
   const connections = areas.flatMap((area) =>
     area.neighborIds
@@ -80,6 +83,7 @@ export default function MapBoard({
   return (
     <div
       className={`map-stage map-stage--${mode}`}
+      style={{ "--char-scale": characterScale } as CSSProperties}
       onClick={handleMapClick}
       role={mode === "place" ? "button" : undefined}
       tabIndex={mode === "place" ? 0 : undefined}

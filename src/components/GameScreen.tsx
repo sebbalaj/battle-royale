@@ -20,6 +20,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
   const [copied, setCopied] = useState(false);
   const [viewerAreaId, setViewerAreaId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [portraitScale, setPortraitScale] = useState(1.6);
   const mapPanelRef = useRef<HTMLDivElement>(null);
   const { game } = campaign;
 
@@ -112,17 +113,31 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
         <div className="game-map-column">
           <div className={`panel map-panel${isFullscreen ? " is-fullscreen" : ""}`} ref={mapPanelRef}>
             {isFullscreen && (
-              <div className="map-float-controls">
-                <button className="map-float-button map-float-button--primary" disabled={battleComplete} onClick={onAdvance}>
-                  {battleComplete ? "Done" : advanceLabel}
-                </button>
-                <button className="map-float-button" disabled={!game.currentBasicText} onClick={() => void handleCopyBoth()} title="Copy basic + conflict text">
-                  {copied ? "Copied" : "📋"}
-                </button>
-                <button className="map-float-button" disabled={!canGenerateConflict} onClick={onGenerateConflict} title="Teleport two characters to a shared cell">
-                  ⚔️
-                </button>
-              </div>
+              <>
+                <div className="map-float-controls">
+                  <button className="map-float-button map-float-button--primary" disabled={battleComplete} onClick={onAdvance}>
+                    {battleComplete ? "Done" : advanceLabel}
+                  </button>
+                  <button className="map-float-button" disabled={!game.currentBasicText} onClick={() => void handleCopyBoth()} title="Copy basic + conflict text">
+                    {copied ? "Copied" : "📋"}
+                  </button>
+                  <button className="map-float-button" disabled={!canGenerateConflict} onClick={onGenerateConflict} title="Teleport two characters to a shared cell">
+                    ⚔️
+                  </button>
+                </div>
+                <div className="map-scale-slider">
+                  <input
+                    type="range"
+                    min={0.6}
+                    max={4}
+                    step={0.1}
+                    value={portraitScale}
+                    onChange={(event) => setPortraitScale(Number(event.target.value))}
+                    aria-label="Portrait size"
+                    title="Portrait size"
+                  />
+                </div>
+              </>
             )}
             <div className="map-status-row">
               <div>
@@ -177,6 +192,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
               dangerPoints={campaign.dangerPoints}
               sniperShots={game.phase === "outcome-hidden" ? game.pendingSniperShots : []}
               onAreaHold={(areaId) => setViewerAreaId(areaId)}
+              characterScale={isFullscreen ? portraitScale : 1}
             />
           </div>
         </div>
