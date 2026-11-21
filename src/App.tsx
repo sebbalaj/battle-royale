@@ -3,7 +3,7 @@ import GameScreen from "./components/GameScreen";
 import SettingsScreen from "./components/SettingsScreen";
 import SetupScreen from "./components/SetupScreen";
 import { createDefaultCampaign, createDefaultSavedMap, emptyGameState, migrateCampaign } from "./data";
-import { revealOutcomes, runGeneratedConflict, runRound } from "./game";
+import { buildRoundZeroIntro, revealOutcomes, runGeneratedConflict, runRound } from "./game";
 import { listMaps, loadCampaign, saveCampaign, saveMap } from "./storage";
 import type { Campaign } from "./types";
 
@@ -52,25 +52,31 @@ export default function App() {
   }
 
   const startBattle = () => {
+    // Sit-out characters do not join: they are dropped from the live board for
+    // this game. Their definitions remain in setup (and the roster) so they
+    // return next time. Non-sitting-out characters are reset to start state.
+    const liveCharacters = campaign.characters
+      .filter((character) => !character.sitOut)
+      .map((character) => ({
+        ...character,
+        areaId: character.startAreaId,
+        status: "active" as const,
+        power: campaign.settings.startingPower,
+        lastOpponentId: undefined,
+        deathCause: undefined,
+        diedInRound: undefined,
+        deadBodyImage: undefined,
+      }));
+    const started: Campaign = { ...campaign, screen: "game", characters: liveCharacters, game: emptyGameState() };
     setCampaign({
-      ...campaign,
-      screen: "game",
-      // Sit-out characters do not join: they are dropped from the live board for
-      // this game. Their definitions remain in setup (and the roster) so they
-      // return next time. Non-sitting-out characters are reset to start state.
-      characters: campaign.characters
-        .filter((character) => !character.sitOut)
-        .map((character) => ({
-          ...character,
-          areaId: character.startAreaId,
-          status: "active",
-          power: campaign.settings.startingPower,
-          lastOpponentId: undefined,
-          deathCause: undefined,
-          diedInRound: undefined,
-          deadBodyImage: undefined,
-        })),
-      game: emptyGameState(),
+      ...started,
+      game: {
+        ...started.game,
+        // Round 0 is the pre-battle stage: surface the attire intro as the
+        // current round text so GameScreen shows what everyone is wearing
+        // before the first Advance. buildRoundZeroIntro reads the live roster.
+        currentBasicText: buildRoundZeroIntro(started),
+      },
     });
   };
 

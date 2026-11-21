@@ -15,6 +15,7 @@ import type {
   WeaponType,
 } from "./types";
 import { weaponSlot } from "./weapons";
+import { activeAttire } from "./data";
 
 export const parseEntries = (source: string): string[] =>
   source
@@ -192,16 +193,26 @@ const describeFight = (campaign: Campaign, fight: FightExchange): string => {
   const chance = Math.round(fight.winnerChance * 100);
   const weaponNote = `${winner} wielded ${describeLoadout(winnerChar?.weapon, winnerChar?.rangedWeapon)}; ${loser} wielded ${describeLoadout(loserChar?.weapon, loserChar?.rangedWeapon)}.`;
   const winnerResult = `${winner} won with a ${chance}% chance and lost ${fight.winnerDamage} power (${fight.winnerPowerBefore} → ${fight.winnerPowerAfter}).`;
+  // Weapon steals announced by NAME only (never a bonus number). The same
+  // locked steal data drives both the died and escaped wording below.
+  const stolen = [fight.winnerStoleCombat, fight.winnerStoleRanged].filter(Boolean) as WeaponType[];
+  const stealText = stolen.length
+    ? ` ${winner} took ${loser}'s ${stolen.map((weapon) => nameOfWeapon(weapon)).join(" and ")} after the fight.`
+    : "";
   if (fight.loserFate === "died") {
-    const dropped = [loserChar?.weapon, loserChar?.rangedWeapon].filter(Boolean) as WeaponType[];
+    // Only the slots the winner did NOT steal are left lying at the scene.
+    const dropped = [
+      fight.winnerStoleCombat ? undefined : loserChar?.weapon,
+      fight.winnerStoleRanged ? undefined : loserChar?.rangedWeapon,
+    ].filter(Boolean) as WeaponType[];
     const drop = dropped.length
       ? ` ${loser}'s ${dropped.map((weapon) => nameOfWeapon(weapon)).join(" and ")} dropped at the scene.`
       : "";
-    return `- ${weaponNote} ${winnerResult} ${loser} died in the fight.${drop}`;
+    return `- ${weaponNote} ${winnerResult} ${loser} died in the fight.${stealText}${drop}`;
   }
   const escapeArea = nameOfArea(campaign, fight.escapeAreaId ?? "");
   const deathChance = Math.round(fight.loserDeathChance * 100);
-  return `- ${weaponNote} ${winnerResult} ${loser} escaped to ${escapeArea} with ${fight.loserPowerAfter} power after surviving a ${deathChance}% death chance.`;
+  return `- ${weaponNote} ${winnerResult} ${loser} escaped to ${escapeArea} with ${fight.loserPowerAfter} power after surviving a ${deathChance}% death chance.${stealText}`;
 };
 
 const buildConflictText = (campaign: Campaign, round: number, conflicts: ConflictOutcome[], pickups: WeaponPickup[]): string => {
@@ -219,6 +230,27 @@ const buildConflictText = (campaign: Campaign, round: number, conflicts: Conflic
   const entries = shuffle(parseEntries(campaign.phraseSource)).slice(0, 12);
   const pickupSection = pickupLines.length ? `\n\nWEAPON DROPS\n${pickupLines.join("\n")}` : "";
   return `ROUND ${round} — CONFLICT RESULTS\n\n${resultLines.join("\n")}${pickupSection}\n\nSTORY WORDS AND PHRASES\n${entries.join("; ")}`;
+};
+
+// Characters that actually take part in a game: not sitting out and alive at
+// the start. Shared by the round-0 intro and the setup prompt attire section.
+const participatingCharacters = (campaign: Campaign): Character[] =>
+  campaign.characters.filter((character) => !character.sitOut && character.status !== "dead");
+
+// Factual one-line attire announcement for a character. Uses a neutral line
+// when the active attire text is empty, kept consistent across the round-0
+// intro and the setup prompt.
+const attireLine = (character: Character): string => {
+  const text = activeAttire(character)?.text?.trim() ?? "";
+  return text ? `${character.name} wears ${text}.` : `${character.name} wears nothing noteworthy.`;
+};
+
+// Round-0 intro (item 4): a simple block announcing what every participating
+// (non-sitting-out, living) character is wearing at the start of the game.
+// Surfaced in the in-game round text at battle start (see App startBattle).
+export const buildRoundZeroIntro = (campaign: Campaign): string => {
+  const lines = participatingCharacters(campaign).map((character) => `- ${attireLine(character)}`);
+  return `ROUND 0 — THE STAGE IS SET\n\nATTIRE\n${lines.length ? lines.join("\n") : "- No characters are taking part."}`;
 };
 
 export const buildSetupPrompt = (campaign: Campaign): string => {
@@ -254,6 +286,10 @@ export const buildSetupPrompt = (campaign: Campaign): string => {
 
   const crateLines = campaign.crates.map((crate) => `- A supply crate sits at ${nameOfArea(campaign, crate.areaId)}.`);
 
+  // Attire lines for every participating character, consistent with the round-0
+  // intro wording so the AI prompt announces what everyone is wearing.
+  const attireLines = participatingCharacters(campaign).map((character) => `- ${attireLine(character)}`);
+
   const section = (title: string, lines: string[], emptyNote: string): string =>
     `${title}\n${lines.length ? lines.join("\n") : `- ${emptyNote}`}`;
 
@@ -277,6 +313,8 @@ export const buildSetupPrompt = (campaign: Campaign): string => {
     section("DANGER POINTS", dangerLines, "None."),
     "",
     section("CHARACTERS", characterLines, "None."),
+    "",
+    section("ATTIRE", attireLines, "None."),
     "",
     section("CRATES", crateLines, "None."),
     "",
@@ -323,13 +361,35 @@ const resolveConflict = (campaign: Campaign, areaId: string, occupants: Characte
     const escapeAreaId = loserDies || eligibleEscapes.length === 0 ? undefined : choose(eligibleEscapes);
     const loserPowerAfter = loserDies ? 0 : randomInteger(settings.escapePowerMin, settings.escapePowerMax);
 
-    projected.set(winner.id, { ...winner, power: winnerPowerAfter, lastOpponentId: loser.id });
+    // Weapon steal on ANY win (died OR escaped): the winner takes the loser's
+    // slot weapon whenever it is better for that same slot. Decided and locked
+    // here (at Advance); applied at Reveal. The combat bonus is NOT touched, so
+    // the secret-bonus invariant holds. The projected board is updated so
+    // downstream rolls (e.g. who now holds a sniper) see the post-steal loadout.
+    const winnerStoleCombat =
+      loser.weapon && isBetterWeapon(settings, loser.weapon, winner.weapon) ? loser.weapon : undefined;
+    const winnerStoleRanged =
+      loser.rangedWeapon && isBetterWeapon(settings, loser.rangedWeapon, winner.rangedWeapon)
+        ? loser.rangedWeapon
+        : undefined;
+
+    projected.set(winner.id, {
+      ...winner,
+      power: winnerPowerAfter,
+      lastOpponentId: loser.id,
+      weapon: winnerStoleCombat ?? winner.weapon,
+      rangedWeapon: winnerStoleRanged ?? winner.rangedWeapon,
+    });
     projected.set(loser.id, {
       ...loser,
       power: loserPowerAfter,
       areaId: escapeAreaId ?? loser.areaId,
       status: loserDies ? "dead" : "active",
       lastOpponentId: winner.id,
+      // An escaped loser keeps any slot the winner did not steal; a died loser's
+      // slots are cleared (the drop is handled at Reveal).
+      weapon: loserDies ? undefined : winnerStoleCombat ? undefined : loser.weapon,
+      rangedWeapon: loserDies ? undefined : winnerStoleRanged ? undefined : loser.rangedWeapon,
     });
 
     fights.push({
@@ -345,6 +405,8 @@ const resolveConflict = (campaign: Campaign, areaId: string, occupants: Characte
       loserDeathChance,
       loserPowerAfter,
       escapeAreaId,
+      winnerStoleCombat,
+      winnerStoleRanged,
     });
     controllerId = winner.id;
   }
@@ -619,6 +681,166 @@ const advanceHealCooldowns = (campaign: Campaign, healEvents: HealEvent[]): Heal
   });
 };
 
+// --- Escape-destination mechanics (locked at Advance) ---------------------
+
+// A 1v1 loser who ESCAPES relocates to escapeAreaId. That destination cell must
+// now also run its own healing / ground+crate loot / danger checks FOR THAT
+// LOSER, rolled and locked here and applied at Reveal against the ESCAPED
+// position (the Reveal areaId guard matches because conflicts move the loser
+// before heal/danger apply). The cell the loser LEFT is a conflict cell and is
+// excluded from the normal rolls, so there is no double-application.
+//
+// Threads the post-normal-pickup `weapons`/`crates` so a ground weapon already
+// pending-claimed by a normal occupant is not claimed twice, and newly dropped
+// replacements are visible. Returns additional pending events to merge.
+type EscapeOutcomes = {
+  pickups: WeaponPickup[];
+  healEvents: HealEvent[];
+  dangerEvents: DangerEvent[];
+  weapons: MapWeapon[];
+  crates: Crate[];
+};
+
+const rollEscapeDestinationOutcomes = (
+  campaign: Campaign,
+  conflicts: ConflictOutcome[],
+  postConflictCharacters: Map<string, Character>,
+  startWeapons: MapWeapon[],
+  startCrates: Crate[],
+): EscapeOutcomes => {
+  const settings = campaign.settings;
+  let weapons = [...startWeapons];
+  let crates = startCrates.map((crate) => ({ ...crate }));
+  const pickups: WeaponPickup[] = [];
+  const healEvents: HealEvent[] = [];
+  const dangerEvents: DangerEvent[] = [];
+
+  // Every escaped loser, in resolution order, with their post-conflict state
+  // (power after the fight, loadout after any steal, destination cell).
+  const escapees = conflicts.flatMap((conflict) =>
+    conflict.fights
+      .filter((fight) => fight.loserFate === "escaped" && fight.escapeAreaId)
+      .map((fight) => ({ fight, areaId: fight.escapeAreaId! })),
+  );
+
+  for (const { fight, areaId } of escapees) {
+    const loser = postConflictCharacters.get(fight.loserId);
+    if (!loser || loser.status !== "active") continue;
+
+    // --- Ground + crate loot at the destination (same rules as the normal
+    //     per-cell roll, but against the escaped position and loadout). ---
+    let combat = loser.weapon;
+    let ranged = loser.rangedWeapon;
+    const slotCurrent = (weapon: WeaponType) => (weaponSlot(weapon) === "ranged" ? ranged : combat);
+    const setSlot = (weapon: WeaponType) => {
+      if (weaponSlot(weapon) === "ranged") ranged = weapon;
+      else combat = weapon;
+    };
+
+    const groundHere = weapons.filter((weapon) => weapon.areaId === areaId);
+    const takeBestGround = (slot: "combat" | "ranged") => {
+      const best = groundHere
+        .filter((weapon) => weaponSlot(weapon.weapon) === slot && weapons.some((w) => w.id === weapon.id))
+        .filter((weapon) => isBetterWeapon(settings, weapon.weapon, slotCurrent(weapon.weapon)))
+        .sort((a, b) => combatBonus(settings, b.weapon) - combatBonus(settings, a.weapon))[0];
+      if (!best) return;
+      const replaced = slotCurrent(best.weapon);
+      weapons = weapons.filter((weapon) => weapon.id !== best.id);
+      setSlot(best.weapon);
+      pickups.push({
+        characterId: loser.id,
+        areaId,
+        weapon: best.weapon,
+        source: "ground",
+        replaced,
+        postConflict: true,
+      });
+      if (replaced) {
+        weapons = [...weapons, { id: crypto.randomUUID(), areaId, weapon: replaced }];
+      }
+    };
+    takeBestGround("combat");
+    takeBestGround("ranged");
+
+    const crateHere = crates.find((crate) => crate.areaId === areaId && !crate.opened);
+    if (crateHere && Math.random() < settings.crateFindChance) {
+      crates = crates.map((crate) => (crate.id === crateHere.id ? { ...crate, opened: true } : crate));
+      if (isBetterWeapon(settings, crateHere.weapon, slotCurrent(crateHere.weapon))) {
+        const replaced = slotCurrent(crateHere.weapon);
+        setSlot(crateHere.weapon);
+        pickups.push({
+          characterId: loser.id,
+          areaId,
+          weapon: crateHere.weapon,
+          source: "crate",
+          replaced,
+          postConflict: true,
+        });
+        if (replaced) {
+          weapons = [...weapons, { id: crypto.randomUUID(), areaId, weapon: replaced }];
+        }
+      }
+    }
+
+    // --- Healing at the destination. A point on cooldown does not fire; note
+    //     this does not tick cooldowns (the normal roll owns cooldown state),
+    //     it only lets an escapee benefit from an already-available point. ---
+    for (const point of campaign.healingPoints) {
+      if (point.areaId !== areaId || point.cooldownRemaining > 0) continue;
+      if (Math.random() >= point.chance) continue;
+      const powerBefore = loser.power;
+      healEvents.push({
+        characterId: loser.id,
+        pointId: point.id,
+        pointName: point.name,
+        areaId,
+        amount: point.healAmount,
+        powerBefore,
+        powerAfter: powerBefore + point.healAmount,
+      });
+      break; // one heal per escapee per cell, matching the normal single-occupant roll
+    }
+
+    // --- Danger at the destination. ---
+    for (const point of campaign.dangerPoints) {
+      if (point.areaId !== areaId) continue;
+      const powerBefore = loser.power;
+      const avoided = Math.random() < point.avoidChance;
+      if (avoided) {
+        dangerEvents.push({
+          characterId: loser.id,
+          pointId: point.id,
+          pointName: point.name,
+          areaId,
+          damage: 0,
+          powerBefore,
+          powerAfter: powerBefore,
+          died: false,
+          avoided: true,
+        });
+        continue;
+      }
+      const damage = randomInteger(point.minDamage, point.maxDamage);
+      const raw = powerBefore - damage;
+      const died = !loser.invulnerable && raw <= 0;
+      const powerAfter = died ? 0 : loser.invulnerable ? Math.max(1, raw) : raw;
+      dangerEvents.push({
+        characterId: loser.id,
+        pointId: point.id,
+        pointName: point.name,
+        areaId,
+        damage,
+        powerBefore,
+        powerAfter,
+        died,
+        avoided: false,
+      });
+    }
+  }
+
+  return { pickups, healEvents, dangerEvents, weapons, crates };
+};
+
 // --- Round driver ---------------------------------------------------------
 
 // Shared tail of a round. Given the characters AFTER movement and the movement
@@ -656,7 +878,43 @@ const assembleRound = (
   const sniperShots = rollSniperShots(campaign, charactersWithWeapons, conflictAreaIds);
   const healEvents = rollHealEvents(campaign, charactersWithWeapons, conflictAreaIds);
   const dangerEvents = rollDangerEvents(campaign, charactersWithWeapons, conflictAreaIds);
-  const healingPointsAfter = advanceHealCooldowns(campaign, healEvents);
+
+  // Escape-destination mechanics (item 8). Build the post-conflict state of
+  // each escaped loser: power after the fight and loadout after any weapon
+  // steal, placed at the destination cell. Then roll that cell's loot / heal /
+  // danger for the loser and merge the locked events into the pending arrays.
+  // Rolled AFTER the normal per-cell rolls, threading the post-pickup weapons/
+  // crates so a ground weapon is never double-claimed. The destination cell is
+  // NOT a conflict cell, so its normal occupants were already handled above;
+  // the escaped loser is an ADDITIONAL claimant that the normal rolls skipped
+  // (the loser was on the excluded conflict cell during those rolls).
+  const postConflictCharacters = new Map(charactersWithWeapons.map((character) => [character.id, character]));
+  for (const conflict of conflicts) {
+    for (const fight of conflict.fights) {
+      const base = postConflictCharacters.get(fight.loserId);
+      if (!base) continue;
+      const escaped = fight.loserFate === "escaped" && fight.escapeAreaId;
+      postConflictCharacters.set(fight.loserId, {
+        ...base,
+        power: fight.loserPowerAfter,
+        status: fight.loserFate === "died" ? "dead" : "active",
+        areaId: escaped ? fight.escapeAreaId! : base.areaId,
+        weapon: fight.loserFate === "died" ? undefined : fight.winnerStoleCombat ? undefined : base.weapon,
+        rangedWeapon: fight.loserFate === "died" ? undefined : fight.winnerStoleRanged ? undefined : base.rangedWeapon,
+      });
+    }
+  }
+  const escapeOutcomes = rollEscapeDestinationOutcomes(
+    campaign,
+    conflicts,
+    postConflictCharacters,
+    pickupResult.weapons,
+    pickupResult.crates,
+  );
+  const allPickups = [...pickupResult.pickups, ...escapeOutcomes.pickups];
+  const allHealEvents = [...healEvents, ...escapeOutcomes.healEvents];
+  const allDangerEvents = [...dangerEvents, ...escapeOutcomes.dangerEvents];
+  const healingPointsAfter = advanceHealCooldowns(campaign, allHealEvents);
 
   // Text is phrased from the projection (so weapon names read correctly), but
   // the board we persist this phase keeps the ORIGINAL weapons, crates and
@@ -666,8 +924,8 @@ const assembleRound = (
   const textCampaign: Campaign = {
     ...campaign,
     characters: charactersWithWeapons,
-    weapons: pickupResult.weapons,
-    crates: pickupResult.crates,
+    weapons: escapeOutcomes.weapons,
+    crates: escapeOutcomes.crates,
     healingPoints: healingPointsAfter,
   };
 
@@ -676,12 +934,12 @@ const assembleRound = (
     nextRound,
     movements,
     conflicts,
-    pickupResult.pickups,
+    allPickups,
     sniperShots,
-    healEvents,
-    dangerEvents,
+    allHealEvents,
+    allDangerEvents,
   );
-  const conflictText = buildConflictText(textCampaign, nextRound, conflicts, pickupResult.pickups);
+  const conflictText = buildConflictText(textCampaign, nextRound, conflicts, allPickups);
 
   const campaignAfterMovement: Campaign = {
     ...campaign,
@@ -697,9 +955,9 @@ const assembleRound = (
       phase: "outcome-hidden",
       pendingOutcomes: conflicts,
       pendingSniperShots: sniperShots,
-      pendingPickups: pickupResult.pickups,
-      pendingHealEvents: healEvents,
-      pendingDangerEvents: dangerEvents,
+      pendingPickups: allPickups,
+      pendingHealEvents: allHealEvents,
+      pendingDangerEvents: allDangerEvents,
       currentBasicText: basicText,
       currentConflictText: conflictText,
       history: [
@@ -709,9 +967,9 @@ const assembleRound = (
           movements,
           conflicts,
           sniperShots,
-          pickups: pickupResult.pickups,
-          healEvents,
-          dangerEvents,
+          pickups: allPickups,
+          healEvents: allHealEvents,
+          dangerEvents: allDangerEvents,
           basicText,
           conflictText,
           revealed: false,
@@ -887,7 +1145,6 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
   let groundWeapons: MapWeapon[] = campaign.weapons.map((weapon) => ({ ...weapon }));
   let crates: Crate[] = campaign.crates.map((crate) => ({ ...crate }));
 
-  const settings = campaign.settings;
   const find = (id: string) => characters.find((character) => character.id === id);
 
   // 0) Weapon pickups (crate / ground), rolled at Advance, applied now. This
@@ -895,9 +1152,12 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
   //    the cell, removes the taken ground weapon, and marks an opened crate.
   //    Deferring this to Reveal keeps weapons at their start-of-round state
   //    during the hidden phase.
-  for (const pickup of campaign.game.pendingPickups) {
+  const applyPickup = (pickup: WeaponPickup) => {
     const picker = find(pickup.characterId);
-    if (!picker || picker.status !== "active") continue;
+    if (!picker || picker.status !== "active") return;
+    // Escape-destination pickups (item 8) only apply if the picker still
+    // occupies the destination cell after conflicts moved them there.
+    if (pickup.postConflict && picker.areaId !== pickup.areaId) return;
 
     if (pickup.source === "crate") {
       const crateIndex = crates.findIndex(
@@ -926,11 +1186,24 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
         { id: crypto.randomUUID(), areaId: pickup.areaId, weapon: pickup.replaced },
       ];
     }
+  };
+
+  // Normal same-round pickups apply before conflicts (as before). Escape-
+  // destination pickups wait until after conflicts move the loser (step 1b).
+  for (const pickup of campaign.game.pendingPickups) {
+    if (!pickup.postConflict) applyPickup(pickup);
   }
 
   let droppedWeapons: MapWeapon[] = [];
 
-  // 1) Conflicts: apply fight outcomes, then weapon drops/pickups on kills.
+  // 1) Conflicts: apply fight outcomes, then weapon steals and kill-drops.
+  //    Steals are decided uniformly at Advance (winnerStoleCombat/Ranged) for
+  //    BOTH a died and an escaped loser, so there is exactly ONE mechanism:
+  //      - the winner takes each stolen slot (dropping their replaced weapon on
+  //        the conflict cell),
+  //      - an escaped loser keeps only the slots that were not stolen,
+  //      - a died loser's UNSTOLEN remaining slots drop to the ground.
+  //    A slot is therefore never both stolen and dropped.
   for (const outcome of campaign.game.pendingOutcomes) {
     for (const fight of outcome.fights) {
       const winnerName = nameOfCharacter(campaign, fight.winnerId);
@@ -952,46 +1225,57 @@ export const revealOutcomes = (campaign: Campaign): Campaign => {
           lastOpponentId: fight.winnerId,
           deathCause: loserDied ? `Died in fight with ${winnerName}.` : undefined,
           diedInRound: loserDied ? campaign.game.round : undefined,
-          // On death BOTH slots are cleared; the weapons drop below.
-          weapon: loserDied ? undefined : character.weapon,
-          rangedWeapon: loserDied ? undefined : character.rangedWeapon,
+          // A died loser's slots are both cleared (remaining ones drop below).
+          // An escaped loser loses only the slots the winner stole.
+          weapon: loserDied ? undefined : fight.winnerStoleCombat ? undefined : character.weapon,
+          rangedWeapon: loserDied ? undefined : fight.winnerStoleRanged ? undefined : character.rangedWeapon,
         };
       });
 
-      // The fallen rival's weapons drop. For each slot the killer claims the
-      // dropped weapon only when it is better for that killer's same slot;
-      // otherwise it lands on the conflict cell.
+      // Apply the locked steals to the winner. The winner's replaced weapon in
+      // that slot (if any) drops on the conflict cell.
+      const applySteal = (stolen: WeaponType | undefined, slot: "combat" | "ranged") => {
+        if (!stolen) return;
+        const winner = find(fight.winnerId);
+        if (!winner || winner.status !== "active") return;
+        const replaced = slot === "ranged" ? winner.rangedWeapon : winner.weapon;
+        characters = characters.map((character) => {
+          if (character.id !== winner.id) return character;
+          return slot === "ranged"
+            ? { ...character, rangedWeapon: stolen }
+            : { ...character, weapon: stolen };
+        });
+        if (replaced) {
+          droppedWeapons = [
+            ...droppedWeapons,
+            { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: replaced },
+          ];
+        }
+      };
+      applySteal(fight.winnerStoleCombat, "combat");
+      applySteal(fight.winnerStoleRanged, "ranged");
+
+      // A died loser's UNSTOLEN remaining slots drop on the conflict cell.
       if (loserDied) {
-        const claimDrop = (dropped?: WeaponType) => {
-          if (!dropped) return;
-          const slot = weaponSlot(dropped);
-          const winner = find(fight.winnerId);
-          const winnerCurrent = winner ? (slot === "ranged" ? winner.rangedWeapon : winner.weapon) : undefined;
-          if (winner && winner.status === "active" && isBetterWeapon(settings, dropped, winnerCurrent)) {
-            const replaced = winnerCurrent;
-            characters = characters.map((character) => {
-              if (character.id !== winner.id) return character;
-              return slot === "ranged"
-                ? { ...character, rangedWeapon: dropped }
-                : { ...character, weapon: dropped };
-            });
-            if (replaced) {
-              droppedWeapons = [
-                ...droppedWeapons,
-                { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: replaced },
-              ];
-            }
-          } else {
-            droppedWeapons = [
-              ...droppedWeapons,
-              { id: crypto.randomUUID(), areaId: outcome.areaId, weapon: dropped },
-            ];
-          }
+        const dropRemaining = (weapon: WeaponType | undefined, stolen: WeaponType | undefined) => {
+          if (!weapon || stolen) return;
+          droppedWeapons = [
+            ...droppedWeapons,
+            { id: crypto.randomUUID(), areaId: outcome.areaId, weapon },
+          ];
         };
-        claimDrop(loserCombatWeapon);
-        claimDrop(loserRangedWeapon);
+        dropRemaining(loserCombatWeapon, fight.winnerStoleCombat);
+        dropRemaining(loserRangedWeapon, fight.winnerStoleRanged);
       }
     }
+  }
+
+  // 1b) Escape-destination pickups (item 8). Applied only now, after conflicts
+  //     relocated the escaped loser, and guarded by the destination areaId so a
+  //     fight result is never overwritten. Any replaced weapon drops where the
+  //     loser now stands (the destination cell), consistent with normal pickups.
+  for (const pickup of campaign.game.pendingPickups) {
+    if (pickup.postConflict) applyPickup(pickup);
   }
 
   // Sniper / danger / heal are applied as the pre-rolled RANDOM decision (hit,

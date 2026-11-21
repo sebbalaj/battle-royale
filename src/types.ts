@@ -136,6 +136,14 @@ export type FightExchange = {
   loserDeathChance: number;
   loserPowerAfter: number;
   escapeAreaId?: string;
+  // Weapons the winner takes from the loser, decided and LOCKED at Advance for
+  // BOTH a died and an escaped loser (the winner auto-takes the loser's slot
+  // weapon whenever it is better for that slot). Applied at Reveal: the stolen
+  // weapon moves to the winner, the winner's replaced weapon (if any) drops on
+  // the conflict cell, and an escaped loser no longer carries the stolen slot.
+  // On a kill the loser's UNSTOLEN remaining slots drop to the ground instead.
+  winnerStoleCombat?: WeaponType;
+  winnerStoleRanged?: WeaponType;
 };
 
 export type ConflictOutcome = {
@@ -165,6 +173,12 @@ export type WeaponPickup = {
   weapon: WeaponType;
   source: "crate" | "ground" | "drop";
   replaced?: WeaponType;
+  // True for a pickup rolled for an ESCAPED 1v1 loser at their destination cell
+  // (item 8). These are applied at Reveal AFTER conflicts move the loser, and
+  // only if the loser still occupies areaId, so a conflict result is never
+  // clobbered. Normal same-round pickups (undefined) are applied before
+  // conflicts as before.
+  postConflict?: boolean;
 };
 
 export type HealEvent = {
