@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import GameScreen from "./components/GameScreen";
 import SettingsScreen from "./components/SettingsScreen";
 import SetupScreen from "./components/SetupScreen";
-import { createDefaultCampaign, emptyGameState, migrateCampaign } from "./data";
+import { createDefaultCampaign, createDefaultSavedMap, emptyGameState, migrateCampaign } from "./data";
 import { revealOutcomes, runGeneratedConflict, runRound } from "./game";
-import { loadCampaign, saveCampaign } from "./storage";
+import { listMaps, loadCampaign, saveCampaign, saveMap } from "./storage";
 import type { Campaign } from "./types";
 
 export default function App() {
@@ -14,7 +14,22 @@ export default function App() {
 
   useEffect(() => {
     void loadCampaign()
-      .then((savedCampaign) => setCampaign(migrateCampaign(savedCampaign) ?? createDefaultCampaign()))
+      .then(async (savedCampaign) => {
+        const loaded = migrateCampaign(savedCampaign) ?? createDefaultCampaign();
+        // Seed the map library on first run: if the store is empty, persist the
+        // live board as a SavedMap keyed by the campaign's activeMapId so a v5
+        // default campaign has exactly one matching map. Non-destructive: an
+        // existing library is left untouched.
+        try {
+          const maps = await listMaps();
+          if (maps.length === 0 && loaded.activeMapId) {
+            await saveMap(createDefaultSavedMap(loaded, loaded.activeMapId));
+          }
+        } catch {
+          // Seeding is best-effort; a storage failure is surfaced by autosave.
+        }
+        setCampaign(loaded);
+      })
       .catch(() => {
         setStorageError("Local saving is unavailable in this browser session.");
         setCampaign(createDefaultCampaign());
@@ -40,16 +55,21 @@ export default function App() {
     setCampaign({
       ...campaign,
       screen: "game",
-      characters: campaign.characters.map((character) => ({
-        ...character,
-        areaId: character.startAreaId,
-        status: "active",
-        power: campaign.settings.startingPower,
-        lastOpponentId: undefined,
-        deathCause: undefined,
-        diedInRound: undefined,
-        deadBodyImage: undefined,
-      })),
+      // Sit-out characters do not join: they are dropped from the live board for
+      // this game. Their definitions remain in setup (and the roster) so they
+      // return next time. Non-sitting-out characters are reset to start state.
+      characters: campaign.characters
+        .filter((character) => !character.sitOut)
+        .map((character) => ({
+          ...character,
+          areaId: character.startAreaId,
+          status: "active",
+          power: campaign.settings.startingPower,
+          lastOpponentId: undefined,
+          deathCause: undefined,
+          diedInRound: undefined,
+          deadBodyImage: undefined,
+        })),
       game: emptyGameState(),
     });
   };

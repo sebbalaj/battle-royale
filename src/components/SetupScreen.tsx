@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { readImageFile } from "../imageFiles";
 import { buildSetupPrompt, parseEntries } from "../game";
 import { deleteLayout, exportBackup, importBackup, isBackupFile, listLayouts, saveLayout } from "../storage";
-import { emptyGameState } from "../data";
+import { createAttire, emptyGameState } from "../data";
 import type {
   Area,
   Campaign,
@@ -233,10 +233,15 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
 
   const addCharacter = () => {
     const number = campaign.characters.length + 1;
+    const portrait = asset(`portrait-${((number - 1) % 4) + 1}.svg`);
+    const attire = createAttire(portrait, "");
     const character: Character = {
       id: crypto.randomUUID(),
       name: `Character ${number}`,
-      portrait: asset(`portrait-${((number - 1) % 4) + 1}.svg`),
+      portrait,
+      attires: [attire],
+      activeAttireId: attire.id,
+      sitOut: false,
       startAreaId: campaign.areas[0]?.id ?? "",
       areaId: campaign.areas[0]?.id ?? "",
       status: "active",
@@ -249,9 +254,18 @@ export default function SetupScreen({ campaign, onChange, onStart, onReset, onOp
   const updateCharacter = (characterId: string, patch: Partial<Character>) => {
     onChange({
       ...campaign,
-      characters: campaign.characters.map((character) =>
-        character.id === characterId ? { ...character, ...patch } : character,
-      ),
+      characters: campaign.characters.map((character) => {
+        if (character.id !== characterId) return character;
+        const next = { ...character, ...patch };
+        // When a new portrait is set, mirror it onto the active attire so the
+        // derived `portrait` field and the active attire stay in sync.
+        if (patch.portrait !== undefined) {
+          next.attires = next.attires.map((attire) =>
+            attire.id === next.activeAttireId ? { ...attire, picture: patch.portrait as string } : attire,
+          );
+        }
+        return next;
+      }),
     });
   };
 

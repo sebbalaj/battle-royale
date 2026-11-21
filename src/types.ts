@@ -14,10 +14,29 @@ export type Area = {
   neighborIds: string[];
 };
 
+// A character outfit: a profile picture plus an attire text announced at the
+// start of a game (round 0). Characters may hold several and cycle between them.
+export type Attire = {
+  id: string;
+  name?: string;
+  picture: string;
+  text: string;
+};
+
 export type Character = {
   id: string;
   name: string;
+  // DERIVED/compat field: always mirrors the ACTIVE attire's picture. Read
+  // directly by MapBoard, the GameScreen roster, and CellViewer, so it must be
+  // kept in sync after any attire mutation (see withActiveAttire in data.ts).
   portrait: string;
+  // Non-empty list of outfits; activeAttireId selects the one that drives
+  // `portrait` and the round-0 attire announcement.
+  attires: Attire[];
+  activeAttireId: string;
+  // When true the character does not join the next game: greyed out on setup
+  // and removed once the battle starts. Carries over between setups.
+  sitOut: boolean;
   startAreaId: string;
   areaId: string;
   status: CharacterStatus;
@@ -222,8 +241,33 @@ export type LayoutSlot = {
   data: LayoutData;
 };
 
+// A cycleable loot configuration within a saved map: the full set of ground
+// weapons, crates, healing points, and danger points for one preset. Switched
+// the same way attires are, via an active id on the SavedMap.
+export type LootPreset = {
+  id: string;
+  name?: string;
+  weapons: MapWeapon[];
+  crates: Crate[];
+  healingPoints: HealingPoint[];
+  dangerPoints: DangerPoint[];
+};
+
+// A map saved to the library independently of any campaign. Holds the board
+// image, areas, and one or more loot presets. Carries over between setups and
+// is exported/imported on its own (see MapFile in storage.ts).
+export type SavedMap = {
+  id: string;
+  name: string;
+  savedAt: number;
+  mapImage: string;
+  areas: Area[];
+  lootPresets: LootPreset[];
+  activeLootPresetId: string;
+};
+
 export type Campaign = {
-  version: 4;
+  version: 5;
   name: string;
   mapImage: string;
   areas: Area[];
@@ -237,4 +281,8 @@ export type Campaign = {
   settings: Settings;
   screen: Screen;
   game: GameState;
+  // Id of the SavedMap the live board (areas/mapImage/weapons/crates/points)
+  // was projected from, used for Save-map-back behavior. Undefined for pre-v5
+  // saves until the user saves the live board into the map library.
+  activeMapId?: string;
 };
