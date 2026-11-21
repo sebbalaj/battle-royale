@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { copyText } from "../clipboard";
 import { joinRoundText } from "../game";
 import type { Campaign, Character } from "../types";
@@ -19,7 +19,28 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
   const [textDrawerOpen, setTextDrawerOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [viewerAreaId, setViewerAreaId] = useState<string | null>(null);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
   const { game } = campaign;
+
+  // Desktop-only toggle: pressing "f" flips the map into a fullscreen layer.
+  // Restricted to devices with a fine pointer (mouse), ignored while typing in
+  // a field, and skipped when a text/viewer overlay is open.
+  useEffect(() => {
+    const isDesktop = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!isDesktop) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "f" && event.key !== "F") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
+      if (viewerAreaId || textDrawerOpen) return;
+      event.preventDefault();
+      setMapFullscreen((value) => !value);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [viewerAreaId, textDrawerOpen]);
   const activeCharacters = campaign.characters.filter((character) => character.status === "active");
   const deadCharacters = campaign.characters.filter((character) => character.status === "dead");
   const battleComplete = activeCharacters.length <= 1 && game.round > 0 && game.phase !== "outcome-hidden";
@@ -77,7 +98,20 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
 
       <section className="game-layout">
         <div className="game-map-column">
-          <div className="panel map-panel">
+          <div className={`panel map-panel${mapFullscreen ? " is-fullscreen" : ""}`}>
+            {mapFullscreen && (
+              <div className="map-float-controls" aria-hidden={false}>
+                <button className="map-float-button map-float-button--primary" disabled={battleComplete} onClick={onAdvance}>
+                  {battleComplete ? "Done" : advanceLabel}
+                </button>
+                <button className="map-float-button" disabled={!game.currentBasicText} onClick={() => void handleCopyBoth()} title="Copy basic + conflict text">
+                  {copied ? "Copied" : "📋"}
+                </button>
+                <button className="map-float-button" disabled={!canGenerateConflict} onClick={onGenerateConflict} title="Teleport two characters to a shared cell">
+                  ⚔️
+                </button>
+              </div>
+            )}
             <div className="map-status-row">
               <div>
                 <span className={`phase-badge phase-badge--${game.phase}`}>

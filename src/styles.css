@@ -161,6 +161,22 @@ h3 { margin-bottom: .3rem; font-size: 1.35rem; }
 .survivor-count span { color: var(--muted); font-size: .72rem; text-transform: uppercase; }
 .game-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 18px; align-items: start; }
 .map-panel { padding: 14px; }
+/* Desktop map fullscreen: panel becomes a fixed full-viewport layer with the
+   map centered and letterboxed, and small floating corner controls. */
+.map-panel.is-fullscreen { position: fixed; inset: 0; z-index: 60; margin: 0; border: 0; border-radius: 0; padding: 0; background: #0b0a08; display: grid; place-items: center; }
+.map-panel.is-fullscreen .map-status-row,
+.map-panel.is-fullscreen .game-action-dock { display: none; }
+/* Keep the stage sized to the image so the percentage-positioned cell
+   overlays stay aligned; just scale the image up to fill the viewport while
+   preserving its aspect ratio. */
+.map-panel.is-fullscreen .map-stage { width: auto; max-width: 100vw; max-height: 100vh; border: 0; border-radius: 0; background: #0b0a08; box-shadow: none; }
+.map-panel.is-fullscreen .map-image { display: block; width: auto; height: auto; max-width: 100vw; max-height: 100vh; }
+.map-float-controls { position: fixed; z-index: 61; right: 16px; bottom: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.map-float-button { min-width: 42px; border: 1px solid var(--line); border-radius: 10px; background: rgba(25, 23, 19, .88); padding: 10px 14px; color: var(--gold); cursor: pointer; font-weight: 700; font-size: .82rem; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); backdrop-filter: blur(6px); }
+.map-float-button:hover:not(:disabled) { background: rgba(40, 37, 30, .95); }
+.map-float-button:disabled { cursor: not-allowed; opacity: .4; }
+.map-float-button--primary { background: var(--ember); color: #fff8ec; border-color: transparent; }
+.map-float-button--primary:hover:not(:disabled) { background: #e3784f; }
 .map-status-row { min-height: 54px; padding: 4px 4px 12px; }
 .map-status-row > div { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .map-status-row p { max-width: 610px; margin: 0; color: var(--muted); font-size: .78rem; text-align: right; }
