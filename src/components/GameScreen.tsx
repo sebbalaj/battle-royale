@@ -29,6 +29,11 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
     const isDesktop = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     if (!isDesktop) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // Escape always leaves fullscreen.
+      if (event.key === "Escape") {
+        setMapFullscreen((value) => (value ? false : value));
+        return;
+      }
       if (event.key !== "f" && event.key !== "F") return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -38,9 +43,19 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
       event.preventDefault();
       setMapFullscreen((value) => !value);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    // Capture phase so the toggle is never swallowed by a focused control.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [viewerAreaId, textDrawerOpen]);
+
+  // On entering fullscreen, drop focus from any button so the next "f"/"Escape"
+  // reliably reaches the window handler.
+  useEffect(() => {
+    if (mapFullscreen) {
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur?.();
+    }
+  }, [mapFullscreen]);
   const activeCharacters = campaign.characters.filter((character) => character.status === "active");
   const deadCharacters = campaign.characters.filter((character) => character.status === "dead");
   const battleComplete = activeCharacters.length <= 1 && game.round > 0 && game.phase !== "outcome-hidden";
