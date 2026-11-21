@@ -8,7 +8,7 @@ Battle Royale is a local-first map game used alongside external AI text and imag
 
 ### Images
 
-The user can upload one map and one portrait per character from the device's normal file picker.
+The user can upload one map and one portrait per character attire from the device's normal file picker. A portrait upload or paste targets the character's currently active attire.
 
 Accepted formats are PNG, JPEG, and WebP, with a 15 MB limit per image. Images remain in IndexedDB on the current device. They are not sent to GitHub or an AI provider.
 
@@ -20,14 +20,29 @@ The user manually places circular cells over the map. Connections between circle
 
 Every character has:
 
-- A name and portrait.
+- A name.
+- One or more **attires** (see below), exactly one of which is active.
+- A **portrait** that is always the active attire's picture.
 - A manually selected starting cell.
 - Power, starting at the configured starting power (default 7).
 - An optional **Invulnerable** setting.
 - An optional combat weapon and an optional ranged weapon (two separate slots). The Setup character card has a select for each slot.
+- A **Sit out** checkbox (see below).
 - A record of their most recent opponent.
 - Active or dead status.
-- An optional custom dead-body image. This is runtime-only state set from the fullscreen cell viewer after the character dies. It persists with the live campaign in IndexedDB but is excluded from reusable layout save slots.
+- An optional custom dead-body image. This is runtime-only state set from the fullscreen cell viewer after the character dies. It persists with the live campaign in IndexedDB but is not written into the persistent roster entry.
+
+#### Attires
+
+An attire is a profile picture plus an **attire text**. A character can hold several attires, and exactly one is active at a time. The active attire's picture is the portrait shown everywhere (map, roster, and cell viewer).
+
+The Setup character card has a **Switch attire** button. A normal press cycles the active attire to the next one. A long-press on the same button creates a new blank attire (empty text, placeholder picture) and makes it active. The attire text box edits the active attire's text, and Upload portrait and Paste portrait write to the active attire's picture.
+
+The attire text is used to announce what a character is wearing at the start of a game (see the Round 0 intro) and in the setup prompt.
+
+#### Sit out
+
+Each character card has a **Sit out** checkbox. A character set to sit out is greyed on the setup screen and is excluded from the battle when it starts: they do not appear on the map or in the game. They stay in the roster so they can take part in a later game.
 
 Invulnerable means the character cannot die. They can still lose a fight and escape. A negative movement change cannot reduce an invulnerable character below 1 power. Invulnerable characters also survive sniper shots and danger points, flooring at 1 power.
 
@@ -37,15 +52,44 @@ The user can paste text or upload a `.txt` file. Semicolons separate individual 
 
 ### Weapons, crates, healing and danger points
 
-The Setup screen can assign a weapon to a character, place weapons and crates on cells, and place named healing and danger points on cells. A **Randomize** button scatters these across the map for quick play. See the dedicated sections below for how each behaves in a round.
+The Setup screen can assign a weapon to a character, place weapons and crates on cells, and place named healing and danger points on cells. A **random menu** scatters these across the map for quick play (see below). See the dedicated sections below for how each item behaves in a round.
+
+#### Random menu
+
+The random menu takes a per-type count for weapons, crates, healing points, and danger points. Adding scatters that many of each type across the map and places items of the same type in separate cells when possible. When a requested count is larger than the number of available cells, the extra items over-place, stacking the remainder onto cells that already hold one of that type. Different types may share a cell.
+
+A separate **Randomize character positions** action spreads the participating (non-sitting-out) characters across separate cells, over-placing when there are more characters than cells. It sets each character's starting cell.
+
+Adding is additive: it appends to whatever is already placed rather than replacing it. A **Clear all** action removes the placed items when a clean start is wanted.
 
 ### Settings
 
-A **Settings** menu exposes every tunable value so the user can tweak the whole system. Settings are part of the campaign but are not part of a saved layout slot. Defaults are listed in the Settings section below.
+A **Settings** menu exposes every tunable value so the user can tweak the whole system. Settings are part of the campaign. Defaults are listed in the Settings section below.
 
-### Layout save slots
+### Map library
 
-Named layout slots save the whole setup so a map can be reused. A slot stores the campaign name, map image, cells and routes, characters, carried and placed weapons, crates, healing points, and danger points. A slot does **not** store settings or any in-progress battle. Slots live in a separate IndexedDB object store and can be saved, loaded, and deleted independently of the live autosave.
+The map library stores reusable maps separately from the live board. A saved map keeps its map image, cells, routes, and loot, where loot means the placed ground weapons, crates, healing points, and danger points.
+
+From the map library panel the user can:
+
+- **Save map**: write the current live board (image, cells, routes, and current loot) back into the active saved map, or create a new library entry if none is active.
+- **New map**: clear the live board to a single blank cell with no loot and make it the active map.
+- **Switch to** a saved map: project that map's image, cells, routes, and active loot into the live board and make it active.
+- **Delete** a saved map.
+
+Maps live in their own IndexedDB object store. They are not erased by Restore placeholders, starting a new game, or importing a whole-gamestate backup.
+
+#### Loot presets
+
+Within a map, loot is organized into one or more **loot presets**. The active preset holds the currently placed ground weapons, crates, healing points, and danger points. A **Switch loot preset** button cycles through the map's presets, and a long-press on it creates a new blank preset made active. Switching folds the current live loot back into the current preset first, so in-progress edits are not lost, and presets save with the map.
+
+### Character roster
+
+The character roster stores the editable character definitions (name, attires, weapons, power, invulnerable flag, sit-out flag, and starting cell) in its own IndexedDB object store, independent of the live campaign. The live campaign characters are the working copy and are synced into the roster as they are edited. The roster is the durable source and is not erased by Restore placeholders, starting a new game, or importing a whole-gamestate backup.
+
+## Round 0 intro
+
+At battle start, before the first Advance, the game surfaces a Round 0 intro in the round text. It lists each participating (non-sitting-out, living) character with a factual line announcing their active attire text, for example `Mara Vex wears a patched duster.`. A character whose active attire text is empty gets the neutral line `Mara Vex wears nothing noteworthy.`. The first Advance replaces the round text with the Round 1 text, so the intro is a round-0-only block. The same attire lines appear in the setup prompt.
 
 ## Movement round
 
@@ -106,6 +150,7 @@ If the loser survives:
 - Their power becomes randomly 1 or 2.
 - They move to a random connected neighboring cell.
 - They remain active next round.
+- The destination cell now runs its own mechanics against the escaped loser: that cell's healing, loot (ground weapons and crates), and danger checks are rolled for the loser at Advance and applied at Reveal against the destination cell, not the cell they left.
 
 If an invulnerable character loses, their death chance is 0%, so they always escape with 1 or 2 power.
 
@@ -130,7 +175,8 @@ Weapons and crates can be placed on cells during Setup.
 
 - **Ground weapons** are picked up automatically when a character arrives on the cell, routed to their matching slot (combat or ranged), but only if the weapon is better than what the character already holds in that slot. A replaced weapon drops back onto the cell. Characters standing in a conflict cell do not scavenge that round.
 - **Crates** have a find chance (default 50%) to open when a character arrives. If the crate weapon is better for its slot, the character takes it and the crate is marked opened.
-- **Drops on death**: when a fight kills the loser, **both** of the loser's weapon slots drop on the conflict cell and both slots are cleared on the dead character. The killer claims each dropped weapon only if it is better for the killer's matching slot, in which case the killer's replaced weapon from that slot also drops. Anything not claimed stays on the cell for a later ground pickup.
+- **Steal on any win**: on every resolved 1v1, for each slot (combat and ranged) the winner automatically takes the loser's weapon when it is better than the winner's in that slot. This happens whether the loser dies or escapes. The winner's replaced weapon in that slot, if any, drops on the conflict cell, and an escaped loser no longer carries a stolen weapon. The conflict text names each stolen weapon, for example `<winner> took <loser>'s <Weapon> after the fight.`, naming the weapon only.
+- **Drops on death**: when a fight kills the loser, any of the loser's weapon slots that the winner did **not** steal drop on the conflict cell, and both slots are cleared on the dead character. Steal and death-drop use one shared mechanism, so a slot is never both stolen and dropped. Anything not claimed stays on the cell for a later ground pickup.
 
 All weapon changes are rolled and locked at Advance but only applied at Reveal, like every other outcome. Ground and crate pickups, their replaced-weapon drops, and drops from a kill all resolve at Reveal. During the outcome-hidden phase, carried weapons and crates on the map stay exactly as they were at the start of the round.
 
@@ -185,7 +231,7 @@ The Settings menu tunes every value the engine reads. Defaults:
 | Escape power minimum | 1 |
 | Escape power maximum | 2 |
 
-Settings belong to the campaign and are not stored in layout save slots.
+Settings belong to the campaign.
 
 Settings and Setup share a reusable numeric field. It lets the user clear the input while editing and commits the parsed value, or a fallback when the field is left empty or invalid, when the field loses focus. This removes the earlier forced-leading-zero behavior that blocked clearing a numeric field.
 
@@ -254,7 +300,7 @@ Includes:
 - Whether the loser died or escaped.
 - Escape destination and remaining power.
 - Each fighter's weapon by name.
-- Weapon drops after a kill and who picked them up.
+- Weapon steals (winner taking the loser's better weapon) and drops after a kill, and who picked them up.
 - Between 8 and 12 randomized story entries.
 
 Weapon names appear in the round and conflict texts. The numeric secret bonus is never printed anywhere.
@@ -270,7 +316,7 @@ Dead-body images are managed from inside the viewer and only on a fallen charact
 - **Paste**: a swipe up reads the first image on the clipboard through the asynchronous Clipboard API (`navigator.clipboard.read`) and stores it as the dead body. It only acts when the current body is a fallen character with no custom image yet. On Safari and iOS, or on any clipboard failure, it falls back to a normal file picker that accepts PNG, JPEG, and WebP.
 - **Remove**: a swipe down clears the custom image and reverts the body to the greyed portrait. It only acts when the current body has a custom image.
 
-Vertical and horizontal gestures are resolved by their dominant axis so paste / remove never collide with previous / next. Dead-body images are stored as data URLs on the character and persist through the IndexedDB autosave; they are runtime state and are not written into saved layout slots.
+Vertical and horizontal gestures are resolved by their dominant axis so paste / remove never collide with previous / next. Dead-body images are stored as data URLs on the character and persist through the IndexedDB autosave; they are runtime state and are not written into the persistent roster entry.
 
 ## Setup prompt
 
@@ -281,6 +327,7 @@ The Setup screen offers a third copyable text that describes the world for an ex
 - Each named healing point with its heal amount, success chance, and cooldown.
 - Each named danger point with its damage range.
 - Each character with their starting cell, invulnerable status, and the names of any carried weapons across the combat and ranged slots.
+- An attire section listing what each participating character is wearing, using the same wording as the Round 0 intro.
 - Crate locations by cell name.
 - A short plain-language summary of the rules, including that weapons give a hidden combat edge.
 
@@ -305,15 +352,23 @@ Invulnerable characters receive a distinct marker and portrait border.
 
 ## Local persistence and migration
 
-IndexedDB stores the current campaign, uploaded images, game phase, hidden outcomes, power values, death causes, custom dead-body images, round history, and named layout slots. Layout slots live in their own object store, separate from the single live campaign.
+The IndexedDB database is at `DB_VERSION` 3. It holds the single live campaign, uploaded images, game phase, hidden outcomes, power values, death causes, custom dead-body images, and round history, plus three auxiliary object stores: the legacy layout slots store (kept for migration), the **maps** store (the map library), and the **characters** store (the persistent roster). The maps and characters stores are never cleared by Restore placeholders, starting a new game, or importing a whole-gamestate backup.
 
-Campaigns are stored at version 4. Older saves are migrated automatically to version 4. Their map, cells, routes, portraits, names, and story entries are kept. Weapons, crates, healing points, and danger points are only carried over from existing version 3 and version 4 saves; earlier saves start these empty and reset settings and the battle to defaults.
+Campaigns are stored at version 5. Older saves are migrated automatically to version 5. Their map, cells, routes, portraits, names, and story entries are kept. Weapons, crates, healing points, and danger points are only carried over from existing version 3, 4, and 5 saves; earlier saves start these empty and reset settings and the battle to defaults.
 
-The migration also normalizes per-character state to the two-slot model: an old single sniper weapon moves to the ranged slot, any other old weapon moves to the combat slot, and a character may end up holding both. Every migrated danger point gets an avoid chance, defaulting to 0.25 when the save did not store one. Custom dead-body images are left unset after migration.
+The migration normalizes per-character state to the two-slot weapon model: an old single sniper weapon moves to the ranged slot, any other old weapon moves to the combat slot, and a character may end up holding both. Every migrated danger point gets an avoid chance, defaulting to 0.25 when the save did not store one. Custom dead-body images are left unset after migration.
+
+The version 4 to version 5 migration is non-destructive and idempotent. A character's single portrait becomes its first attire, with empty attire text, and the active attire is set to it so the derived portrait is unchanged; a character is marked as not sitting out unless it already was. The current map is seeded into the map library as one saved map so a version 5 default campaign has a map to save back to. Nothing is erased, and running the migration again on a version 5 save does not duplicate attires or maps.
 
 ### Backup and restore
 
-Because all data lives only in the current browser (and can be lost if the browser's site data is cleared), the setup screen offers manual backup. **Export backup** downloads a single JSON file containing the current campaign and every saved layout. **Import backup** reads such a file, replaces the current campaign, and merges its layouts into storage, after a confirmation. The imported campaign is validated by a `format: "battle-royale-backup"` marker before it is applied. This also lets a campaign move between devices or browsers.
+Because all data lives only in the current browser (and can be lost if the browser's site data is cleared), the setup screen offers manual backup.
+
+**Whole-gamestate backup.** **Export backup** downloads a single JSON file containing the current campaign plus every saved map and every roster character. **Import backup** reads such a file, replaces the current campaign, and merges its maps and roster into storage without deleting existing maps or roster entries, after a confirmation. The file is validated by a `format: "battle-royale-backup"` marker before it is applied. The backup file is at version 2; version 1 files that predate the maps and roster arrays are still accepted and default those arrays to empty. This also lets a campaign move between devices or browsers.
+
+**Per-map backup.** A single map can be exported as a `format: "battle-royale-map"` JSON file and imported back; an imported map is validated and added to the library under a fresh id so it never overwrites an existing map.
+
+**Per-attire backup.** A single character attire can be exported as a `format: "battle-royale-attire"` JSON file and imported back; an imported attire is validated and added as a new attire on a character.
 
 ## Future options
 
