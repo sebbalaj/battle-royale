@@ -241,6 +241,7 @@ export default function GameScreen({ campaign, onAdvance, onEditSetup, onGenerat
           areaName={viewerArea?.name ?? ""}
           onClose={() => setViewerAreaId(null)}
           onSetDeadBodyImage={onSetDeadBodyImage}
+          container={isFullscreen ? mapPanelRef.current : null}
         />
       )}
     </main>

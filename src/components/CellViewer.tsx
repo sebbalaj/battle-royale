@@ -11,6 +11,9 @@ type CellViewerProps = {
   onClose: () => void;
   // Set or clear a fallen character's custom dead-body image.
   onSetDeadBodyImage: (characterId: string, image: string | undefined) => void;
+  // Portal target. When the map is fullscreen this must be the fullscreen
+  // element, otherwise the overlay renders under the browser's top layer.
+  container?: HTMLElement | null;
 };
 
 // Minimum pointer travel (in px) along the dominant axis before a release is
@@ -39,7 +42,7 @@ const readClipboardImage = async (): Promise<string | undefined> => {
   return undefined;
 };
 
-export default function CellViewer({ characters, areaName, onClose, onSetDeadBodyImage }: CellViewerProps) {
+export default function CellViewer({ characters, areaName, onClose, onSetDeadBodyImage, container }: CellViewerProps) {
   const [index, setIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gestureStart = useRef<{ x: number; y: number } | null>(null);
@@ -191,6 +194,6 @@ export default function CellViewer({ characters, areaName, onClose, onSetDeadBod
         }}
       />
     </div>,
-    document.body,
+    container ?? document.body,
   );
 }
